@@ -32,7 +32,9 @@ def search_trusted_sources(claim: str) -> list[str]:
     keywords = extract_keywords_entities(claim)
     if not keywords:
         # Fallback if no specific entities/nouns found
-        keywords = claim.split()[:5]
+        keywords = [token.text for token in nlp(claim) if not token.is_stop and token.is_alpha][:5]
+        if not keywords:
+            keywords = claim.split()[:5]
         
     query = " ".join(keywords[:3]) # Use top 3 strongest keywords for broader search
     
@@ -76,7 +78,7 @@ def search_trusted_sources(claim: str) -> list[str]:
         filtered_snippets = []
         for score, idx in zip(top_results[0], top_results[1]):
             # Lower threshold slightly since live data is less perfectly aligned than mock data
-            if score.item() > 0.15: 
+            if score.item() > 0.10: 
                 filtered_snippets.append(snippets[idx])
                 
         return filtered_snippets

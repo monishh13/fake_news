@@ -27,20 +27,27 @@ async def analyze_text(text: str = Form(...)):
     
     for claim in claims:
         # Get distilbert prediction & shap explanation
-        score, explanation = analyze_claim(claim)
+        base_score, explanation = analyze_claim(claim)
         
         # Retrieve evidence and determine status
         evidence_snippets = search_trusted_sources(claim)
         status = compute_evidence_similarity(claim, evidence_snippets)
         
+        # Apply evidence weightage to credibility score
+        final_score = base_score
+        if status == "SUPPORTED":
+            final_score = min(final_score + 0.25, 1.0)
+        elif status == "CONTRADICTED":
+            final_score = max(final_score - 0.25, 0.0)
+        
         analyzed_claims.append({
             "claim_text": claim,
-            "credibility_score": score,
+            "credibility_score": final_score,
             "status": status,
             "evidence_snippets": evidence_snippets,
             "shap_explanation": explanation
         })
-        total_score += score
+        total_score += final_score
         
     overall = total_score / len(claims) if claims else 0.5
         
