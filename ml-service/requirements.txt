@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+python-multipart
+spacy
+transformers
+torch
+Pillow
+pytesseract
+PyPDF2
+sentence-transformers
+shap
+numpy
+pandas
+scikit-learn
+pydantic

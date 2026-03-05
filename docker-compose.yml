@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    container_name: fakenews-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: fakenewsdb
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - app-network
+
+  ml-service:
+    build: 
+      context: ./ml-service
+    container_name: fakenews-ml
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./model_weights:/app/model_weights
+    networks:
+      - app-network
+
+  backend:
+    build: 
+      context: ./backend
+    container_name: fakenews-backend
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_HOST=db
+      - DB_USER=root
+      - DB_PASSWORD=root
+      - ML_SERVICE_URL=http://ml-service:8000
+    depends_on:
+      - db
+      - ml-service
+    networks:
+      - app-network
+
+  frontend:
+    build: 
+      context: ./frontend
+    container_name: fakenews-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+volumes:
+  db_data:
+
+networks:
+  app-network:
+    driver: bridge

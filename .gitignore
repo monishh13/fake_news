@@ -1,0 +1,12 @@
+node_modules/
+dist/
+target/
+.mvn/
+*.jar
+__pycache__/
+venv/
+.env
+model_weights/
+.DS_Store
+.idea/
+.vscode/
