@@ -1,33 +1,162 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { UploadCloud, FileText, AlertTriangle, Activity, Search, History, Info, Sun, Moon, Shield } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import { motion, AnimatePresence } from 'framer-motion';
+import { clsx } from 'clsx';
+import { twMerge } from 'tailwind-merge';
+import { 
+    UploadCloud, FileText, AlertTriangle, Activity, Search, 
+    History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check 
+} from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 
-function App() {
+function cn(...inputs) { return twMerge(clsx(inputs)); }
+
+// -- Animation Variants --
+const containerVariants = {
+    hidden: { opacity: 0 },
+    show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+};
+const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } }
+};
+
+// -- Glass Card Component --
+const GlassCard = ({ children, className, ...props }) => (
+    <motion.div 
+        className={cn("bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border)] rounded-2xl shadow-xl overflow-hidden", className)}
+        {...props}
+    >
+        {children}
+    </motion.div>
+);
+
+// -- Trust Meter Component --
+const TrustMeter = ({ score }) => {
+    const percentage = Math.round(score * 100);
+    const radius = 40;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+    const colorClass = percentage >= 70 ? 'text-emerald-400' : (percentage >= 40 ? 'text-amber-400' : 'text-rose-500');
+
+    return (
+        <div className="relative flex items-center justify-center w-32 h-32">
+            {/* Background Circle */}
+            <svg className="w-full h-full transform -rotate-90">
+                <circle cx="64" cy="64" r={radius} stroke="currentColor" strokeWidth="8" fill="transparent" className="text-gray-700/50" />
+                <motion.circle 
+                    cx="64" cy="64" r={radius} 
+                    stroke="currentColor" strokeWidth="8" fill="transparent" 
+                    className={colorClass}
+                    strokeDasharray={circumference}
+                    initial={{ strokeDashoffset: circumference }}
+                    animate={{ strokeDashoffset }}
+                    transition={{ duration: 1.5, ease: "easeOut" }}
+                />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-3xl font-bold tracking-tighter text-[var(--text-primary)]">{percentage}%</span>
+                <span className="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase">Trust</span>
+            </div>
+        </div>
+    );
+};
+
+// -- Evidence Badge Formatter --
+const EvidenceItem = ({ evidenceText }) => {
+    // Regex to capture "[Source Name] The rest of the text"
+    const match = evidenceText.match(/^\[(.*?)\]\s*(.*)$/);
+    if (!match) {
+        return (
+            <li className="text-sm leading-relaxed text-[var(--text-secondary)] relative pl-5 group/ev">
+                <span className="absolute left-0 top-1 text-accent opacity-60">→</span>
+                {evidenceText}
+                <div className="absolute top-0 -right-2 opacity-0 group-hover/ev:opacity-100 transition-opacity"><ClipboardButton text={evidenceText} /></div>
+            </li>
+        );
+    }
+    
+    const [, rawSource, cleanText] = match;
+    
+    // Determine badge color
+    let badgeColor = "bg-[var(--bg-input)] text-[var(--text-primary)] border-[var(--border)]";
+    if (rawSource.includes('Google') || rawSource.includes('Fact Check')) badgeColor = "bg-blue-500/20 text-blue-400 border-blue-500/30";
+    else if (rawSource.includes('NewsAPI')) badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+    else if (rawSource.includes('Wikipedia')) badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+
+    return (
+        <li className="text-sm leading-relaxed text-[var(--text-primary)] relative flex flex-col gap-2 group/ev p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] hover:border-[var(--border)] transition-colors">
+            <div className="flex justify-between items-start">
+                <span className={cn("text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-md border", badgeColor)}>
+                    {rawSource}
+                </span>
+                <div className="opacity-0 group-hover/ev:opacity-100 transition-opacity">
+                    <ClipboardButton text={cleanText} />
+                </div>
+            </div>
+            <p className="pl-1 italic text-[var(--text-secondary)]">{cleanText}</p>
+        </li>
+    );
+};
+
+// -- Clipboard Button Component --
+const ClipboardButton = ({ text }) => {
+    const [copied, setCopied] = useState(false);
+    const handleCopy = () => {
+        navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
+    return (
+        <button onClick={handleCopy} className="p-1.5 text-muted-foreground hover:text-primary transition-colors hover:bg-[var(--bg-input)] rounded-md" title="Copy to clipboard">
+            {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+        </button>
+    );
+};
+
+export default function App() {
     const [text, setText] = useState('');
     const [file, setFile] = useState(null);
-    const [loading, setLoading] = useState(false);
+    const [url, setUrl] = useState('');
     const [result, setResult] = useState(null);
     const [error, setError] = useState('');
     const [activePage, setActivePage] = useState('analyze');
     const [theme, setTheme] = useState('dark');
     const [history, setHistory] = useState([]);
+    
+    // For sharing feature
+    const [shareCopied, setShareCopied] = useState(false);
 
     const fileInputRef = useRef(null);
-    const API_BASE = 'http://localhost:8080/api/detection';
+    const API_BASE = 'http://localhost:8081/api/detection';
 
-    // Load history from local storage on mount
+    // On Mount
     useEffect(() => {
+        // Load History
         const saved = localStorage.getItem('aivera_history');
-        if (saved) {
-            try { setHistory(JSON.parse(saved)); } catch (e) { }
+        if (saved) { try { setHistory(JSON.parse(saved)); } catch (e) { } }
+
+        // Check URL for ?report=id
+        const urlParams = new URLSearchParams(window.location.search);
+        const reportId = urlParams.get('report');
+        if (reportId) {
+            fetchReport(reportId);
         }
     }, []);
 
-    // Save history to local storage whenever it changes
-    useEffect(() => {
-        localStorage.setItem('aivera_history', JSON.stringify(history));
-    }, [history]);
+    const [isFetchingReport, setIsFetchingReport] = useState(false);
+    const fetchReport = async (id) => {
+        setIsFetchingReport(true); setError(''); setResult(null); setActivePage('analyze');
+        try {
+            const { data } = await axios.get(`${API_BASE}/${id}`);
+            setResult(data);
+        } catch (err) {
+            setError("Couldn't find that report. It may have been deleted or the ID is invalid.");
+        } finally {
+            setIsFetchingReport(false);
+        }
+    };
 
     const toggleTheme = () => {
         const next = theme === 'dark' ? 'light' : 'dark';
@@ -42,45 +171,67 @@ function App() {
             type,
             query: typeof query === 'string' ? (query.length > 80 ? query.substring(0, 80) + '...' : query) : 'Document Analysis'
         };
-        setHistory(prev => [newRecord, ...prev].slice(0, 5)); // Keep last 5
+        const updated = [newRecord, ...history].filter((v,i,a)=>a.findIndex(t=>(t.id === v.id))===i).slice(0, 10);
+        setHistory(updated);
+        localStorage.setItem('aivera_history', JSON.stringify(updated));
     };
 
-    const handleTextSubmit = async () => {
+    const analyzeMutation = useMutation({
+        mutationFn: async ({ type, payload }) => {
+            if (type === 'text') {
+                const formData = new FormData();
+                formData.append('text', payload);
+                return axios.post(`${API_BASE}/text`, formData).then(res => res.data);
+            } else if (type === 'file') {
+                const formData = new FormData();
+                formData.append('file', payload);
+                return axios.post(`${API_BASE}/file`, formData).then(res => res.data);
+            } else if (type === 'url') {
+                const { data: extracted } = await axios.post(`${API_BASE}/extract-url?url=${encodeURIComponent(payload)}`);
+                if (!extracted.text) throw new Error("Could not extract text from this URL.");
+                
+                setText(extracted.title ? `${extracted.title}\n\n${extracted.text}` : extracted.text);
+                
+                const formData = new FormData();
+                formData.append('text', extracted.title ? `${extracted.title}\n\n${extracted.text}` : extracted.text);
+                return axios.post(`${API_BASE}/text`, formData).then(res => res.data);
+            }
+        },
+        onSuccess: (data, variables) => {
+            setResult(data);
+            let queryVal = variables.type === 'file' ? variables.payload.name : variables.payload;
+            addToHistory(data, variables.type, queryVal);
+            window.history.pushState({}, '', window.location.pathname);
+        },
+        onError: (err) => {
+            setError('Analysis failed: ' + (err.response?.data?.message || err.message));
+        }
+    });
+
+    const loading = analyzeMutation.isPending || isFetchingReport;
+
+    const handleTextSubmit = () => {
         if (!text.trim()) { setError('Please enter some text to analyze.'); return; }
-        setLoading(true); setError(''); setResult(null);
-        try {
-            const formData = new FormData();
-            formData.append('text', text);
-            const { data } = await axios.post(`${API_BASE}/text`, formData);
-            setResult(data);
-            addToHistory(data, 'text', text);
-        } catch (err) {
-            setError('Failed to analyze text. Ensure backend services are running.');
-        } finally { setLoading(false); }
+        setError(''); setResult(null);
+        analyzeMutation.mutate({ type: 'text', payload: text });
     };
 
-    const handleFileChange = (e) => {
-        if (e.target.files && e.target.files[0]) setFile(e.target.files[0]);
-    };
-
-    const handleFileSubmit = async () => {
+    const handleFileSubmit = () => {
         if (!file) { setError('Please select a file to upload.'); return; }
-        setLoading(true); setError(''); setResult(null);
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-            const { data } = await axios.post(`${API_BASE}/file`, formData);
-            setResult(data);
-            addToHistory(data, 'file', file.name);
-        } catch (err) {
-            setError('Failed to analyze file. Ensure backend services are running.');
-        } finally { setLoading(false); }
+        setError(''); setResult(null);
+        analyzeMutation.mutate({ type: 'file', payload: file });
+    };
+
+    const handleUrlSubmit = () => {
+        if (!url.trim()) { setError('Please enter a valid URL.'); return; }
+        setError(''); setResult(null);
+        analyzeMutation.mutate({ type: 'url', payload: url });
     };
 
     const getScoreColor = (score) => {
-        if (score >= 0.7) return 'var(--success)';
-        if (score >= 0.4) return 'var(--warning)';
-        return 'var(--danger)';
+        if (score >= 0.7) return '#34d399'; // emerald-400
+        if (score >= 0.4) return '#fbbf24'; // amber-400
+        return '#f43f5e'; // rose-500
     };
 
     const formatShapData = (shapDict) => {
@@ -91,110 +242,193 @@ function App() {
             .slice(0, 8);
     };
 
-    const navItems = [
-        { id: 'analyze', label: 'Analyze News', icon: Search },
-        { id: 'history', label: 'History', icon: History },
-        { id: 'about', label: 'About', icon: Info },
-    ];
+    const shareUrl = result?.id ? `${window.location.origin}${window.location.pathname}?report=${result.id}` : '';
+    const shareText = result ? `Check out this fact-check report from AIVera: Credibility ${Math.round(result.overallCredibility * 100)}%` : '';
+
+    const handleShareCopy = () => {
+        navigator.clipboard.writeText(shareUrl);
+        setShareCopied(true); setTimeout(() => setShareCopied(false), 2000);
+    };
 
     const renderAnalyze = () => (
-        <>
-            {error && (
-                <div className="error-msg">
-                    <AlertTriangle size={18} style={{ marginRight: '10px', flexShrink: 0 }} />{error}
+        <motion.div variants={containerVariants} initial="hidden" animate="show" className="space-y-6 max-w-5xl mx-auto w-full">
+            <AnimatePresence>
+                {error && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="p-4 bg-red-500/10 border border-red-500/20 text-red-500 rounded-xl flex items-center gap-3">
+                        <AlertTriangle size={20} className="flex-shrink-0" />
+                        <span className="text-sm font-medium">{error}</span>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 relative z-10">
+                <GlassCard className="p-6 flex flex-col gap-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold tracking-wider text-muted-foreground uppercase">
+                        <FileText size={16} /> Text Input
+                    </div>
+                    <textarea
+                        className="w-full flex-1 min-h-[160px] p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-none"
+                        placeholder="Paste news article or social media post here..."
+                        value={text}
+                        onChange={e => setText(e.target.value)}
+                    />
+                    <button 
+                        onClick={handleTextSubmit} disabled={loading}
+                        className="w-full py-3 px-4 rounded-xl bg-accent hover:bg-accent/90 text-[var(--text-primary)] font-medium shadow-[0_0_20px_rgba(108,92,231,0.3)] transition-all active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2"
+                    >
+                        {loading ? <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : 'Analyze Text'}
+                    </button>
+                </GlassCard>
+
+                <GlassCard className="p-6 flex flex-col gap-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold tracking-wider text-muted-foreground uppercase">
+                        <Search size={16} /> URL Link
+                    </div>
+                    <div className="w-full flex-1 min-h-[160px] rounded-xl flex flex-col justify-center text-center transition-all group">
+                        <input 
+                            type="url"
+                            value={url}
+                            onChange={(e) => setUrl(e.target.value)}
+                            placeholder="https://example.com/news/..."
+                            className="w-full p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all"
+                        />
+                        <div className="text-xs text-muted-foreground mt-4 leading-relaxed">
+                            AIVera will attempt to automatically extract the main article content from the given webpage.
+                        </div>
+                    </div>
+                    <button 
+                        onClick={handleUrlSubmit} disabled={loading || !url}
+                        className="w-full py-3 px-4 rounded-xl bg-[var(--bg-input)] hover:bg-white/20 border border-[var(--border)] text-[var(--text-primary)] font-medium transition-all active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2"
+                    >
+                        {loading ? <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : 'Analyze URL'}
+                    </button>
+                </GlassCard>
+
+                <GlassCard className="p-6 flex flex-col gap-4">
+                    <div className="flex items-center gap-2 text-sm font-semibold tracking-wider text-muted-foreground uppercase">
+                        <UploadCloud size={16} /> Upload File
+                    </div>
+                    <div 
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full flex-1 min-h-[160px] border-2 border-dashed border-[var(--border)] hover:border-accent/50 hover:bg-accent/5 rounded-xl flex flex-col items-center justify-center p-6 text-center cursor-pointer transition-all group"
+                    >
+                        <UploadCloud size={32} className="text-[var(--text-primary)]/20 group-hover:text-accent/70 transition-colors mb-2" />
+                        {file ? (
+                            <span className="text-emerald-400 font-medium truncate w-full px-2" title={file.name}>{file.name}</span>
+                        ) : (
+                            <>
+                                <span className="font-semibold text-[var(--text-primary)]">Drag & Drop File</span>
+                                <span className="text-xs text-muted-foreground mt-1">PDF, PNG, JPG</span>
+                            </>
+                        )}
+                        <input type="file" ref={fileInputRef} onChange={e => {if(e.target.files[0]) setFile(e.target.files[0])}} className="hidden" accept=".pdf,image/*" />
+                    </div>
+                    <button 
+                        onClick={handleFileSubmit} disabled={loading || !file}
+                        className="w-full py-3 px-4 rounded-xl bg-[var(--bg-input)] hover:bg-white/20 border border-[var(--border)] text-[var(--text-primary)] font-medium transition-all active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2"
+                    >
+                        {loading ? <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" /> : 'Analyze File'}
+                    </button>
+                </GlassCard>
+            </div>
+
+            {loading && (
+                <div className="flex flex-col items-center justify-center py-20 opacity-80 animate-pulse text-accent">
+                    <Shield size={64} className="mb-6 animate-bounce" />
+                    <p className="text-lg font-medium tracking-wide">Processing through custom ML pipeline...</p>
                 </div>
             )}
 
-            <div className="upload-section">
-                <div className="card">
-                    <div className="input-group">
-                        <label><FileText size={16} /> Text Input</label>
-                        <textarea
-                            placeholder="Paste news article or social media post here..."
-                            value={text}
-                            onChange={e => setText(e.target.value)}
-                        />
-                    </div>
-                    <button className="btn btn-primary" onClick={handleTextSubmit} disabled={loading}>
-                        {loading ? 'Analyzing...' : 'Analyze Text'}
-                    </button>
-                </div>
-
-                <div className="card">
-                    <div className="input-group" style={{ height: '100%' }}>
-                        <label><UploadCloud size={16} /> Upload File</label>
-                        <div
-                            className="file-drop-area"
-                            onClick={() => fileInputRef.current.click()}
-                            onDragOver={e => e.preventDefault()}
-                            onDrop={e => { e.preventDefault(); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); }}
-                        >
-                            <UploadCloud size={40} color="var(--accent)" style={{ marginBottom: '0.75rem', opacity: 0.7 }} />
-                            {file ? (
-                                <span style={{ color: 'var(--success)', fontWeight: 600 }}>{file.name}</span>
-                            ) : (
-                                <>
-                                    <span style={{ fontWeight: 500 }}>Drag & Drop or Click</span>
-                                    <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '0.4rem' }}>PDF, PNG, JPG, JPEG</span>
-                                </>
-                            )}
-                            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf,image/*" />
-                        </div>
-                        <button className="btn btn-primary" onClick={handleFileSubmit} disabled={loading || !file} style={{ marginTop: 'auto' }}>
-                            {loading ? 'Analyzing...' : 'Analyze File'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            {loading && <div className="loader"></div>}
-
-            {result && (
-                <div className="results-section card">
-                    <div className="score-container">
-                        <div>
-                            <h2 style={{ fontSize: '1.5rem', marginBottom: '0.4rem' }}>Analysis Results</h2>
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                                Extracted and verified {result.claims?.length || 0} declarative claims.
+            {result && !loading && (
+                <motion.div variants={itemVariants} className="space-y-8 mt-8">
+                    {/* Hero Results Card */}
+                    <GlassCard className="p-8 relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 border-accent/20">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 opacity-50"></div>
+                        
+                        <div className="space-y-2 flex-1 text-center md:text-left">
+                            <h2 className="text-3xl font-extrabold tracking-tight bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent">Analysis Complete</h2>
+                            <p className="text-muted-foreground max-w-lg mx-auto md:mx-0">
+                                Extracted and verified <span className="text-[var(--text-primary)] font-semibold">{result.claims?.length || 0} declarative claims</span> from the provided content using our custom DistilBERT ensemble.
                             </p>
+                            
+                            {/* Share Actions */}
+                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6">
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mr-2">Share Report</span>
+                                <button onClick={handleShareCopy} className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] rounded-full text-sm font-medium transition-all">
+                                    {shareCopied ? <Check size={16} className="text-emerald-400" /> : <Share2 size={16} />} 
+                                    {shareCopied ? 'Copied Link!' : 'Copy Link'}
+                                </button>
+                                <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-4 py-2 bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/20 border border-[#1DA1F2]/20 text-[#1DA1F2] rounded-full text-sm font-medium transition-all">
+                                    <Twitter size={16} /> Post on X
+                                </a>
+                            </div>
                         </div>
-                        <div className="score-circle" style={{ borderColor: getScoreColor(result.overallCredibility) }}>
-                            <span>{Math.round(result.overallCredibility * 100)}%</span>
-                            <span className="score-label">Credibility</span>
-                        </div>
-                    </div>
 
-                    <div className="claims-list">
-                        <h3><Activity size={16} style={{ marginRight: '8px', verticalAlign: 'middle' }} />Claim Level Breakdown</h3>
+                        <div className="flex flex-col items-center">
+                            <TrustMeter score={result.overallCredibility} />
+                            <p className="mt-4 text-xs tracking-widest uppercase font-semibold text-muted-foreground">Overall Score</p>
+                        </div>
+                    </GlassCard>
+
+                    {/* Claims Breakdown */}
+                    <div className="space-y-6">
+                        <h3 className="flex items-center gap-3 text-xl font-semibold tracking-tight">
+                            <Activity className="text-accent" /> Full Claim Breakdown
+                        </h3>
+                        
                         {result.claims?.map((claim, idx) => (
-                            <div key={idx} className="claim-card">
-                                <div className="claim-header">
-                                    <div className="claim-text">"{claim.claimText}"</div>
-                                    <div className={`badge ${claim.status.toLowerCase().split('_')[0]}`}>
-                                        {claim.status.replace('_', ' ')}
+                            <GlassCard key={idx} className="p-0 overflow-hidden group hover:border-[var(--border)] transition-colors">
+                                <div className="p-6 border-b border-[var(--border)]">
+                                    <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
+                                        <div className="flex-1">
+                                            <div className="flex items-start gap-2">
+                                                <p className="text-lg font-medium text-[var(--text-primary)] leading-relaxed italic">"{claim.claimText}"</p>
+                                                <ClipboardButton text={claim.claimText} />
+                                            </div>
+                                        </div>
+                                        <div className={cn(
+                                            "uppercase tracking-widest text-[10px] font-bold px-3 py-1.5 rounded-full border",
+                                            claim.status.startsWith('SUPPORTED') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
+                                            claim.status.startsWith('CONTRADICTED') ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
+                                            "bg-amber-500/10 text-amber-400 border-amber-500/20"
+                                        )}>
+                                            {claim.status.replace('_', ' ')}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-4 text-sm font-bold mt-2">
+                                        <div className="flex-1 h-2 bg-[var(--bg-sidebar)] rounded-full overflow-hidden border border-[var(--border)]">
+                                            <motion.div 
+                                                className="h-full rounded-full"
+                                                style={{ backgroundColor: getScoreColor(claim.credibilityScore) }}
+                                                initial={{ width: 0 }}
+                                                whileInView={{ width: `${claim.credibilityScore * 100}%` }}
+                                                viewport={{ once: true }}
+                                                transition={{ duration: 1, delay: 0.2 }}
+                                            />
+                                        </div>
+                                        <span style={{ color: getScoreColor(claim.credibilityScore) }}>
+                                            {Math.round(claim.credibilityScore * 100)}% Verified
+                                        </span>
                                     </div>
                                 </div>
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0.75rem 0', fontWeight: 'bold', fontSize: '0.85rem', color: getScoreColor(claim.credibilityScore) }}>
-                                    <div style={{ flex: 1, height: '6px', background: 'var(--border)', borderRadius: '3px', overflow: 'hidden' }}>
-                                        <div style={{ height: '100%', width: `${claim.credibilityScore * 100}%`, background: getScoreColor(claim.credibilityScore), transition: 'width 1s ease' }}></div>
-                                    </div>
-                                    <span>{Math.round(claim.credibilityScore * 100)}% Trusted</span>
-                                </div>
-
-                                <div className="claim-details">
-                                    <div>
-                                        <h4>Impact Analysis (SHAP)</h4>
-                                        <div style={{ height: '200px' }}>
+                                <div className="grid grid-cols-1 lg:grid-cols-2 bg-[var(--bg-input)] origin-top divide-y lg:divide-y-0 lg:divide-x divide-white/5">
+                                    <div className="p-6">
+                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-6 flex items-center justify-between">
+                                            Explainability (SHAP)
+                                            <span className="text-[10px] text-[var(--text-muted)] lowercase font-normal italic">word impact</span>
+                                        </h4>
+                                        <div className="h-48">
                                             <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={formatShapData(claim.shapExplanation)} layout="vertical" margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                                                <BarChart data={formatShapData(claim.shapExplanation)} layout="vertical" margin={{ top: 0, right: 0, left: 40, bottom: 0 }}>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                                                     <XAxis type="number" hide />
-                                                    <YAxis dataKey="word" type="category" stroke="var(--text-muted)" fontSize={11} tickLine={false} axisLine={false} />
-                                                    <Tooltip cursor={{ fill: 'var(--accent-glow)' }} contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px', color: 'var(--text-primary)' }} />
-                                                    <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={10}>
+                                                    <YAxis dataKey="word" type="category" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
+                                                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.02)' }} contentStyle={{ background: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '13px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }} />
+                                                    <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={12}>
                                                         {formatShapData(claim.shapExplanation).map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={entry.score > 0 ? 'var(--success)' : 'var(--danger)'} />
+                                                            <Cell key={`cell-${index}`} fill={entry.score > 0 ? '#34d399' : '#f43f5e'} />
                                                         ))}
                                                     </Bar>
                                                 </BarChart>
@@ -202,144 +436,201 @@ function App() {
                                         </div>
                                     </div>
 
-                                    <div>
-                                        <h4>Retrieved Evidence</h4>
+                                    <div className="p-6">
+                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-6">Retrieved Evidence</h4>
                                         {claim.evidenceSnippets?.length > 0 ? (
-                                            <ul className="evidence-list">
+                                            <ul className="space-y-4">
                                                 {claim.evidenceSnippets.map((ev, i) => (
-                                                    <li key={i}>{ev}</li>
+                                                    <EvidenceItem key={i} evidenceText={ev} />
                                                 ))}
                                             </ul>
                                         ) : (
-                                            <p style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.9rem' }}>No relevant verified facts found for this claim.</p>
+                                            <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
+                                                <Info size={32} className="mb-3" />
+                                                <p className="text-sm">No verified factual evidence<br/>located for this specific claim.</p>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
-                            </div>
+                            </GlassCard>
                         ))}
                     </div>
-                </div>
+                </motion.div>
             )}
-        </>
+        </motion.div>
     );
 
     const renderHistory = () => (
-        <div className="card">
-            <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Recent Analyses</h2>
+        <motion.div variants={containerVariants} initial="hidden" animate="show" className="max-w-4xl mx-auto w-full space-y-6">
+            <h2 className="text-2xl font-bold tracking-tight mb-8">Recent Analyses</h2>
+            
             {history.length === 0 ? (
-                <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '2rem 0' }}>No recent analyses found.</p>
+                <div className="text-center py-24 text-[var(--text-muted)]">
+                    <History size={48} className="mx-auto mb-4" />
+                    <p>Your analysis history is empty.</p>
+                </div>
             ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="space-y-4">
                     {history.map((record, idx) => (
-                        <div
-                            key={idx}
-                            className="claim-card"
-                            style={{ cursor: 'pointer', background: 'var(--bg-card)' }}
-                            onClick={() => { setResult(record); setActivePage('analyze'); }}
-                        >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                                <span className="badge" style={{ background: 'var(--bg-input)' }}>{record.type.toUpperCase()}</span>
-                                <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{new Date(record.timestamp).toLocaleString()}</span>
-                            </div>
-                            <h4 style={{ marginBottom: '1rem', fontStyle: 'italic', fontWeight: 500, color: 'var(--text-primary)' }}>"{record.query}"</h4>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: getScoreColor(record.overallCredibility) }}></div>
-                                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
-                                    {Math.round(record.overallCredibility * 100)}% Credibility · {record.claims?.length || 0} Claims
-                                </span>
-                                <span style={{ marginLeft: 'auto', fontSize: '0.8rem', color: 'var(--accent)' }}>View Results →</span>
-                            </div>
-                        </div>
+                        <motion.div variants={itemVariants} key={record.id || idx}>
+                            <GlassCard 
+                                className="p-6 cursor-pointer hover:border-accent/50 hover:bg-[var(--bg-input)] transition-all group"
+                                onClick={() => { setResult(record); setActivePage('analyze'); }}
+                            >
+                                <div className="flex justify-between items-center mb-4">
+                                    <span className="uppercase tracking-widest text-[10px] font-bold px-3 py-1 bg-[var(--bg-input)] rounded-full border border-[var(--border)] text-[var(--text-secondary)]">
+                                        {record.type}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground">{new Date(record.timestamp).toLocaleString()}</span>
+                                </div>
+                                <h4 className="text-lg font-medium italic text-[var(--text-primary)] mb-4 line-clamp-2">"{record.query}"</h4>
+                                <div className="flex items-center gap-4 text-sm font-semibold">
+                                    <div className="w-3 h-3 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.2)]" style={{ backgroundColor: getScoreColor(record.overallCredibility) }} />
+                                    <span className="text-[var(--text-secondary)]">{Math.round(record.overallCredibility * 100)}% Credibility</span>
+                                    <span className="text-[var(--text-muted)] font-normal">·</span>
+                                    <span className="text-[var(--text-secondary)]">{record.claims?.length || 0} claims extracted</span>
+                                    
+                                    <span className="ml-auto text-accent opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                        View Results <span className="text-lg leading-none">→</span>
+                                    </span>
+                                </div>
+                            </GlassCard>
+                        </motion.div>
                     ))}
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 
     const renderAbout = () => (
-        <div className="card">
-            <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>About AIVera</h2>
-            <div style={{ color: 'var(--text-secondary)', lineHeight: '1.7', fontSize: '1rem' }}>
-                <p style={{ marginBottom: '1rem' }}>
-                    <strong>AIVera</strong> is an Explainable Fake News Detection System designed to analyze news articles and social media posts at a granular level.
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto w-full space-y-8">
+            <div>
+                <h2 className="text-3xl font-extrabold tracking-tight mb-4">About AIVera</h2>
+                <p className="text-lg text-[var(--text-secondary)] leading-relaxed mb-6">
+                    AIVera is a next-generation Explainable Fake News Detection System designed to analyze content at an unprecedented granular level.
                 </p>
-                <p style={{ marginBottom: '1rem' }}>
-                    Unlike traditional binary classification systems that evaluate whole articles as completely true or false, AIVera segments content into individual verifiable claims. It evaluates the credibility of each claim using a fine-tuned DistilBERT transformer model and provides <strong>transparent AI reasoning</strong> using SHAP (SHapley Additive exPlanations) to highlight exactly which words influenced its decision.
-                </p>
-                <p style={{ marginBottom: '2rem' }}>
-                    Coupled with a retrieval-augmented generation approach, AIVera fetches real-world evidence to support or contradict claims, bringing robust fact-checking out of the black box.
-                </p>
-                <div style={{ padding: '1.5rem', background: 'var(--bg-input)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                    <h4 style={{ marginBottom: '1rem', color: 'var(--text-primary)' }}>System Information</h4>
-                    <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <li><strong>Version:</strong> 1.0.0</li>
-                        <li><strong>Frontend:</strong> React, Vite, Recharts</li>
-                        <li><strong>Backend:</strong> Spring Boot, Java 17, H2 Database</li>
-                        <li><strong>Machine Learning:</strong> Python, FastAPI, HuggingFace Transformers</li>
-                        <li><strong>Model:</strong> DistilBERT (Fine-tuned on LIAR dataset)</li>
-                    </ul>
+                <div className="prose prose-invert text-[var(--text-secondary)] leading-relaxed">
+                    <p>Unlike traditional binary classification systems that evaluate whole articles as simply true or false, AIVera segments content into individual verifiable declarative claims.</p>
+                    <p>It evaluates the credibility of each claim using a fine-tuned DistilBERT transformer model and provides <strong>transparent AI reasoning</strong> using SHAP (SHapley Additive exPlanations) to highlight exactly which tokens and phrases influenced its multidimensional decision.</p>
+                    <p>Coupled with a retrieval-augmented generation approach, AIVera seamlessly interfaces with live databanks (Wikipedia, News API) to fetch real-world factual evidence supporting or contradicting the AI's claims, moving critical NLP fact-checking out of the algorithmic black box.</p>
                 </div>
             </div>
-        </div>
+
+            <GlassCard className="p-8 border-accent/20 bg-accent/5">
+                <h4 className="font-semibold text-lg mb-6 flex items-center gap-2"><Activity className="text-accent" /> System Stack</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-[var(--text-secondary)]">
+                    <div className="space-y-3">
+                        <div className="flex justify-between border-b border-[var(--border)] pb-2">
+                            <span className="text-[var(--text-muted)]">Frontend</span>
+                            <span className="font-medium text-[var(--text-primary)]">React, Tailwind, Framer</span>
+                        </div>
+                        <div className="flex justify-between border-b border-[var(--border)] pb-2">
+                            <span className="text-[var(--text-muted)]">Gateway</span>
+                            <span className="font-medium text-[var(--text-primary)]">Java 17, Spring Boot</span>
+                        </div>
+                        <div className="flex justify-between border-b border-[var(--border)] pb-2">
+                            <span className="text-[var(--text-muted)]">Database</span>
+                            <span className="font-medium text-[var(--text-primary)]">Relational DB</span>
+                        </div>
+                    </div>
+                    <div className="space-y-3">
+                        <div className="flex justify-between border-b border-[var(--border)] pb-2">
+                            <span className="text-[var(--text-muted)]">Microservice</span>
+                            <span className="font-medium text-[var(--text-primary)]">Python, FastAPI</span>
+                        </div>
+                        <div className="flex justify-between border-b border-[var(--border)] pb-2">
+                            <span className="text-[var(--text-muted)]">Core Model</span>
+                            <span className="font-medium text-[var(--text-primary)]">DistilBERT (LIAR)</span>
+                        </div>
+                        <div className="flex justify-between border-b border-[var(--border)] pb-2">
+                            <span className="text-[var(--text-muted)]">Explainability</span>
+                            <span className="font-medium text-[var(--text-primary)]">SHAP Gradient Logic</span>
+                        </div>
+                    </div>
+                </div>
+            </GlassCard>
+        </motion.div>
     );
 
-    const renderContent = () => {
-        switch (activePage) {
-            case 'history': return renderHistory();
-            case 'about': return renderAbout();
-            case 'analyze':
-            default: return renderAnalyze();
-        }
-    };
+    const navItems = [
+        { id: 'analyze', label: 'Analyze Center', icon: Search },
+        { id: 'history', label: 'History Archive', icon: History },
+        { id: 'about', label: 'System Info', icon: Info },
+    ];
 
     return (
-        <div className="layout">
+        <div className="flex min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)] font-sans selection:bg-accent/30 overflow-hidden relative">
+            {/* Background Effects */}
+            <div className="fixed inset-0 pointer-events-none z-0">
+                <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full bg-accent/10 blur-[120px]" />
+                <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-emerald-500/5 blur-[120px]" />
+                <div className="absolute top-[20%] right-[10%] w-[30%] h-[30%] rounded-full bg-amber-500/5 blur-[120px]" />
+            </div>
+
             {/* Sidebar */}
-            <aside className="sidebar">
-                <div className="sidebar-logo">
-                    <div className="logo-icon"><Shield size={18} /></div>
-                    <h2>AIVera</h2>
+            <aside className="w-[260px] border-r border-[var(--border)] bg-[var(--bg-sidebar)] backdrop-blur-2xl flex flex-col fixed inset-y-0 z-50">
+                <div className="p-6 border-b border-[var(--border)] flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-purple-800 flex items-center justify-center shadow-[0_0_20px_rgba(108,92,231,0.4)]">
+                        <Shield size={20} className="text-[var(--text-primary)]" />
+                    </div>
+                    <h2 className="text-xl font-bold tracking-tight bg-gradient-to-br from-white to-white/50 bg-clip-text text-transparent">AIVera</h2>
                 </div>
-                <nav className="sidebar-nav">
+                
+                <nav className="flex-1 p-4 space-y-2">
                     {navItems.map(item => (
                         <button
                             key={item.id}
-                            className={`nav-item ${activePage === item.id ? 'active' : ''}`}
                             onClick={() => setActivePage(item.id)}
+                            className={cn(
+                                "flex items-center gap-3 w-full px-4 py-3 rounded-xl transition-all text-sm font-medium",
+                                activePage === item.id 
+                                    ? "bg-[var(--bg-input)] text-[var(--text-primary)] shadow-inner border border-[var(--border)]" 
+                                    : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-input)]"
+                            )}
                         >
-                            <item.icon size={18} />
+                            <item.icon size={18} className={activePage === item.id ? "text-accent" : ""} />
                             {item.label}
                         </button>
                     ))}
                 </nav>
-                <div className="sidebar-footer">
-                    v1.0.0 · Explainable AI
+
+                <div className="p-6 border-t border-[var(--border)]">
+                    <div className="text-[10px] uppercase tracking-widest font-bold text-[var(--text-muted)] flex items-center justify-between">
+                        <span>v2.0.0</span>
+                        <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]"></span> Online</span>
+                    </div>
                 </div>
             </aside>
 
-            {/* Topbar */}
-            <div className="topbar">
-                <span className="topbar-title">
-                    {navItems.find(n => n.id === activePage)?.label || 'AIVera'}
-                </span>
-                <div className="topbar-actions">
-                    <button className="theme-toggle" onClick={toggleTheme} title="Toggle theme">
-                        {theme === 'dark' ? <Sun size={0} /> : <Moon size={0} />}
-                    </button>
-                    <div className="user-avatar">M</div>
+            {/* Main Content Area */}
+            <main className="flex-1 ml-[260px] flex flex-col relative z-10 min-h-screen max-h-screen overflow-y-auto custom-scrollbar">
+                
+                {/* Topbar */}
+                <header className="h-[80px] sticky top-0 z-40 bg-[var(--bg-input)] backdrop-blur-md border-b border-[var(--border)] px-8 flex items-center justify-between shadow-sm">
+                    <div className="flex items-center gap-3">
+                        <div className="h-5 w-1 rounded-full bg-accent"></div>
+                        <h1 className="text-lg font-semibold tracking-tight text-[var(--text-primary)]">
+                            {navItems.find(n => n.id === activePage)?.label}
+                        </h1>
+                    </div>
+                    
+                    <div className="flex items-center gap-4">
+                        <button onClick={toggleTheme} className="w-10 h-10 rounded-full bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] flex items-center justify-center transition-colors text-[var(--text-secondary)]">
+                            {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
+                        </button>
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border border-[var(--border)] flex items-center justify-center font-bold shadow-inner cursor-pointer hover:border-accent transition-colors">
+                            U
+                        </div>
+                    </div>
+                </header>
+
+                {/* Content */}
+                <div className="flex-1 p-8 pb-20">
+                    {activePage === 'analyze' && renderAnalyze()}
+                    {activePage === 'history' && renderHistory()}
+                    {activePage === 'about' && renderAbout()}
                 </div>
-            </div>
-
-            {/* Main Content */}
-            <main className="main-content">
-                {renderContent()}
-
-                <footer className="app-footer">
-                    AIVera — AI-powered credibility analysis. Results are generated by machine learning models and should not be considered definitive judgments.
-                </footer>
             </main>
         </div>
     );
 }
-
-export default App;

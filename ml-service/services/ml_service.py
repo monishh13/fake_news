@@ -3,6 +3,11 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import shap
 import os
+import hashlib
+import json
+
+CACHE_DIR = "cache/shap"
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 model_path = "./model_weights/distilbert"
 has_model = os.path.exists(model_path)
@@ -21,6 +26,19 @@ def analyze_claim(claim_text: str) -> tuple[float, dict]:
     """
     Returns credibility score (0-1) and SHAP explanation dict {word: impact_score}
     """
+    # 1. Check file cache
+    claim_hash = hashlib.md5(claim_text.encode('utf-8')).hexdigest()
+    cache_file = os.path.join(CACHE_DIR, f"{claim_hash}.json")
+    
+    if os.path.exists(cache_file):
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                return data['score'], data['explanation']
+        except Exception:
+            pass # Ignore read errors and recompute
+            
+    # 2. Mock prediction fallback
     if not has_model:
         score = min(max(len(claim_text) / 200, 0.1), 0.9)
         mock_explain = {}
@@ -63,5 +81,12 @@ def analyze_claim(claim_text: str) -> tuple[float, dict]:
         print(f"Error calculating SHAP: {e}")
         import traceback; traceback.print_exc()
         explanation = {"model_error": 0.0}
+
+    # 3. Save to cache
+    try:
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            json.dump({'score': credibility_score, 'explanation': explanation}, f)
+    except Exception:
+        pass
 
     return credibility_score, explanation

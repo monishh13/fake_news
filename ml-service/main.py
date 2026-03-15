@@ -1,10 +1,11 @@
-from fastapi import FastAPI, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from models import ArticleAnalysisResponse
-from services.ocr_service import extract_text_from_image, extract_text_from_pdf
 from services.nlp_service import segment_claims
+from services.ocr_service import extract_text_from_image, extract_text_from_pdf
 from services.ml_service import analyze_claim
 from services.evidence_service import search_trusted_sources, compute_evidence_similarity
+from services.url_service import extract_article_from_url
+from models import ArticleAnalysisResponse, UrlExtractionRequest, UrlExtractionResponse
 import uvicorn
 import io
 
@@ -20,8 +21,19 @@ app.add_middleware(
 
 @app.post("/analyze/text", response_model=ArticleAnalysisResponse)
 async def analyze_text(text: str = Form(...)):
+    if not text or not text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No text provided for analysis."
+        )
+
     claims = segment_claims(text)
-    
+    if not claims:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="No declarative claims found in the provided text."
+        )
+
     analyzed_claims = []
     total_score = 0
     
@@ -49,7 +61,7 @@ async def analyze_text(text: str = Form(...)):
         })
         total_score += final_score
         
-    overall = total_score / len(claims) if claims else 0.5
+    overall = total_score / len(claims)
         
     return {
         "article_text": text,
@@ -60,14 +72,27 @@ async def analyze_text(text: str = Form(...)):
 @app.post("/analyze/file", response_model=ArticleAnalysisResponse)
 async def analyze_file(file: UploadFile = File(...)):
     content = await file.read()
+
     if file.content_type == "application/pdf":
         text = extract_text_from_pdf(io.BytesIO(content))
     elif file.content_type in ["image/jpeg", "image/png", "image/jpg"]:
         text = extract_text_from_image(io.BytesIO(content))
     else:
         text = content.decode('utf-8')
-        
+
+    # If OCR/pdf extraction produced no text, inform the caller.
+    if not text or not text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Could not extract text from the uploaded file. Please upload a PDF or a clear image with readable text."
+        )
+
     return await analyze_text(text=text)
+
+@app.post("/extract-url", response_model=UrlExtractionResponse)
+async def extract_url(req: UrlExtractionRequest):
+    title, text = extract_article_from_url(req.url)
+    return {"title": title, "text": text}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

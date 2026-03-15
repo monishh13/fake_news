@@ -36,10 +36,21 @@ public class DetectionController {
     @PostMapping("/file")
     @Transactional
     public ResponseEntity<Article> analyzeFile(@RequestParam("file") MultipartFile file) {
+        System.out.println("[DetectionController] received file upload: " + file.getOriginalFilename() + " (" + file.getContentType() + ")");
         try {
             JsonNode result = mlServiceClient.analyzeFile(file);
             return ResponseEntity.ok(saveResult(result));
         } catch (IOException e) {
+            e.printStackTrace();
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/extract-url")
+    public ResponseEntity<JsonNode> extractUrl(@RequestParam("url") String url) {
+        try {
+            return ResponseEntity.ok(mlServiceClient.extractUrl(url));
+        } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
     }
@@ -47,6 +58,13 @@ public class DetectionController {
     @GetMapping("/history")
     public ResponseEntity<List<Article>> getHistory() {
         return ResponseEntity.ok(articleRepository.findAllByOrderByCreatedAtDesc());
+    }
+
+    @GetMapping("/{id}")
+    public ResponseEntity<Article> getReport(@PathVariable Long id) {
+        return articleRepository.findById(id)
+                .map(ResponseEntity::ok)
+                .orElse(ResponseEntity.notFound().build());
     }
 
     private Article saveResult(JsonNode result) {

@@ -2,15 +2,16 @@ version: '3.8'
 
 services:
   db:
-    image: mysql:8.0
-    container_name: fakenews-mysql
+    image: postgres:15
+    container_name: fakenews-postgres
     environment:
-      MYSQL_ROOT_PASSWORD: root
-      MYSQL_DATABASE: fakenewsdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+      POSTGRES_DB: fakenewsdb
     ports:
-      - "3306:3306"
+      - "5432:5432"
     volumes:
-      - db_data:/var/lib/mysql
+      - db_data:/var/lib/postgresql/data
     networks:
       - app-network
 
@@ -30,10 +31,11 @@ services:
       context: ./backend
     container_name: fakenews-backend
     ports:
-      - "8080:8080"
+      - "8081:8081"
     environment:
+      - SPRING_PROFILES_ACTIVE=postgres
       - DB_HOST=db
-      - DB_USER=root
+      - DB_USER=postgres
       - DB_PASSWORD=root
       - ML_SERVICE_URL=http://ml-service:8000
     depends_on:

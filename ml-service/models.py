@@ -12,3 +12,10 @@ class ArticleAnalysisResponse(BaseModel):
     article_text: str
     overall_credibility: float
     claims: List[ClaimAnalysis]
+
+class UrlExtractionRequest(BaseModel):
+    url: str
+
+class UrlExtractionResponse(BaseModel):
+    title: str
+    text: str

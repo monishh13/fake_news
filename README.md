@@ -1,71 +1,113 @@
-# AIVera - Explainable Fake News Detection
+<div align="center">
 
-AIVera is a full-stack, AI-powered credibility analysis and fake news detection system. Unlike traditional binary truth classifiers, AIVera segments long-form text into individual declarative claims, evaluates the credibility of each claim using a fine-tuned Transformer model (DistilBERT), and provides **transparent, word-level explanations** using SHAP (SHapley Additive exPlanations).
+# <img src="docs/logo-placeholder.png" width="40" alt="AIVera Logo" /> AIVera - Explainable Fake News Detection
 
-Additionally, AIVera integrates with live data sources (Wikipedia) and uses Semantic Similarity (SentenceTransformers) to retrieve and display real-world evidence confirming or contradicting the analyzed claims.
+<a href="https://github.com/monishh13/fake_news/blob/main/LICENSE">
+    <img alt="License" src="https://img.shields.io/github/license/monishh13/fake_news" />
+</a>
+<a href="https://github.com/monishh13/fake_news/stargazers">
+    <img alt="Stars" src="https://img.shields.io/github/stars/monishh13/fake_news?style=social" />
+</a>
+<a href="#">
+    <img alt="Backend" src="https://img.shields.io/badge/Backend-Spring%20Boot-green" />
+</a>
+<a href="#">
+    <img alt="ML" src="https://img.shields.io/badge/ML%20Service-FastAPI-blue" />
+</a>
+
+<br><br>
+
+AIVera is an advanced, full-stack AI ecosystem designed to combat misinformation through deep credibility analysis and transparent explainability.
+
+---
+
+[Key Features](#-key-features) • [System Architecture](#-system-architecture) • [Browser Extension](#-browser-extension) • [Getting Started](#-getting-started)
+
+</div>
+
+## 🌟 Key Features
+
+### 🧠 Deep Credibility Analysis
+- **DistilBERT-powered Scoring**: Evaluates individual claims using a custom-trained Transformer model optimized for high-precision misinformation detection.
+- **Claim Segmentation**: Automatically breaks down long-form text, PDFs, or images into separate declarative claims for granular verification.
+
+### 🔍 Multi-Source Evidence Retrieval
+AIVera doesn't just predict; it verifies. Our evidence engine cross-references claims against:
+- **Google Fact Check Tools API**: Fetches results from verified fact-checkers globally.
+- **Wikipedia (Live Search)**: Dynamically retrieves relevant context using Semantic Similarity (`all-MiniLM-L6-v2`).
+- **NewsAPI.org**: Pulls recent news descriptions for real-time contextual evidence.
+
+### 📊 Explainable AI (XAI)
+- **SHAP Integration**: Provides word-level attribution charts. See exactly which phrases (e.g., "Death Rumors", "AI-generated") influenced the AI's final score.
+- **Confidence Metrics**: Transparent scoring system weighted by retrieved evidence.
+
+### 🖼️ OCR & File Support
+- Supports **PDF documents**, **PNG/JPG images**, and raw text pastes.
+- Integrated **Tesseract OCR** for analyzing screenshots of social media posts or news snippets.
 
 ---
 
 ## 🏗 System Architecture
 
-The project is structured as a modern 3-tier microservice architecture:
+The project follows a robust microservice-oriented 3-tier architecture:
 
 ### 1. Frontend (React + Vite)
-- **Location**: `frontend/`
-- **Stack**: React, Vite, Lucide React (Icons), Recharts (Data Visualization).
-- **Features**:
-  - Clean, dark-themed responsive UI with Dark/Light mode toggle.
-  - Multi-input support: Paste text directly or upload/drag-and-drop documents (`.txt`, `.pdf`, `.png`, `.jpg`).
-  - Interactive SHAP charts showing exactly which words in a sentence pushed the AI toward a "Fake" or "Real" prediction.
-  - Local caching of analysis history.
+- **Tech**: React 18, Vite, Lucide, Recharts.
+- **Capabilities**: Interactive dashboard, live history archive, dark/light theme toggle, and rich SHAP visualizations.
 
-### 2. Backend (Spring Boot + Java)
-- **Location**: `backend/`
-- **Stack**: Java 17, Spring Boot, Spring Data JPA, H2 In-Memory Database (easily swappable to MySQL).
-- **Features**:
-  - Serves as the central API Gateway for the frontend.
-  - Handles file uploads using `MultipartFile`.
-  - Persists analyzed articles and individual mapped claims to the SQL database to prevent infinite re-analysis.
-  - Proxies complex NLP calls to the Python ML Microservice.
+### 2. Backend Gateway (Spring Boot)
+- **Tech**: Java 17, Spring Boot, Spring Data JPA, H2/MySQL.
+- **Capabilities**: Central API gateway, analysis persistence, history management, and proxying to the ML service.
 
-### 3. ML Microservice (Python + FastAPI)
-- **Location**: `ml-service/`
-- **Stack**: Python 3, FastAPI, PyTorch, HuggingFace Transformers, spaCy, SHAP, Wikipedia-API.
-- **Features**:
-  - **OCR & PDF Extraction**: Uses `pytesseract` to read image text and `PyPDF2` to read documents.
-  - **Claim Segmentation**: Uses NLP (`spaCy`) to split paragraphs into declarative statements, ignoring questions or greetings.
-  - **DistilBERT Inference**: Uses a HuggingFace pipeline locally to score the credibility of claims.
-  - **Explainable AI (XAI)**: Uses `shap.Explainer` to calculate the exact attribution/weight of every token in the input text.
-  - **Evidence Retrieval**: Pulls the top keywords from a claim, searches Wikipedia live, grabs summary paragraphs, and uses `SentenceTransformers` (`all-MiniLM-L6-v2`) to mathematically find the most semantically relevant sentences to display as "Evidence".
+### 3. ML Service (FastAPI)
+- **Tech**: Python 3.10, FastAPI, PyTorch, HuggingFace, spaCy, SHAP.
+- **Capabilities**: Heavy NLP processing, claim extraction, model inference, and multi-source evidence fetching.
 
 ---
 
-## 🚀 How It Works (The Pipeline)
+## 🔌 Browser Extension
 
-1. **Input**: A user pastes a news article or uploads a PDF screenshot of a tweet.
-2. **Gateway**: The Spring Boot backend accepts the request, saves the raw file, and asks the ML Microservice to extract text.
-3. **Segmentation**: The ML service breaks the text down (e.g., extracting 3 distinct claims from a 2-paragraph article).
-4. **Scoring & SHAP**: Each claim is fed to DistilBERT. DistilBERT returns a Real/Fake probability score. SHAP analyzes DistilBERT's brain and outputs a chart showing *why* it gave that score. 
-5. **Fact Retrieval**: Keywords from the claim are queried against Wikipedia. The AI reads the top Wikipedia articles, finds sentences with the highest semantic similarity to the original claim, and attaches them as evidence.
-6. **Result**: The Spring Boot app saves everything to the database and returns a beautiful JSON payload to the React frontend to render for the user.
+AIVera includes a **Chrome/Edge Extension** for real-time analysis while browsing:
+- **Right-Click Analysis**: Highlight any text on any website and analyze it instantly.
+- **Integrated Evidence**: View credibility scores and supporting/contradicting evidence snippets directly in the extension popup.
+- **Deep Dive**: One-click access from the extension to the full dashboard for detailed SHAP impact analysis.
 
 ---
 
-## ⚙️ Running the Project
-
-The easiest way to run the entire stack locally on Windows is to use the provided `start.ps1` Powershell script in the root directory.
+## ⚙️ Getting Started
 
 ### Requirements
-- Node.js (v18+)
-- Java JDK 17+ and Maven
-- Python 3.10+
-- Tesseract OCR (Installed at `C:\Program Files\Tesseract-OCR\tesseract.exe` for image uploads)
+- **Node.js** (v18+)
+- **Java JDK 17+**
+- **Python 3.10+**
+- **Tesseract OCR** (Ensure `tesseract` is in your system PATH)
 
-### Start all services
+### API Keys
+Create a `.env` file in the `ml-service/` directory:
+```env
+GOOGLE_API_KEY=your_google_fact_check_api_key
+NEWS_API_KEY=your_news_api_key
+```
+
+### Quick Start (Windows)
+Run the automated launcher from the root directory:
 ```powershell
-# Run from the root directory
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
-This script will automatically install missing dependencies (npm modules, pip packages) and launch 3 separate windows for the Frontend, Backend, and ML Service. 
+This script handles dependency installation and launches all three service layers automatically.
 
-You can access the UI at **http://localhost:5173**.
+---
+
+## 📸 Screenshots
+
+| Feature | Description |
+|---------|-------------|
+| **Analyze Center** | Central hub for uploading and viewing claim weightage. |
+| **Explainability** | Detailed SHAP charts showing word-level impact. |
+| **Evidence Panel** | Real-world verification from Wikipedia and Google Fact Check. |
+| **Extension** | Quick-access tool for analyzing browser selections. |
+
+---
+
+## 📜 License
+Distributed under the MIT License. See `LICENSE` for more information.

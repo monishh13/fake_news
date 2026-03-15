@@ -23,6 +23,20 @@ public class MlServiceClient {
         this.restTemplate = restTemplate;
     }
 
+    public JsonNode extractUrl(String url) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        
+        // Use Jackson to create JSON payload
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.databind.node.ObjectNode payload = mapper.createObjectNode();
+        payload.put("url", url);
+
+        HttpEntity<String> request = new HttpEntity<>(payload.toString(), headers);
+        ResponseEntity<JsonNode> response = restTemplate.postForEntity(mlServiceUrl + "/extract-url", request, JsonNode.class);
+        return response.getBody();
+    }
+
     public JsonNode analyzeText(String text) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);

@@ -16,6 +16,14 @@ except Exception as e:
     embedder = None
 
 import wikipedia
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
+GOOGLE_FACT_CHECK_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
 
 def extract_keywords_entities(text: str) -> list[str]:
     doc = nlp(text)
@@ -39,10 +47,54 @@ def search_trusted_sources(claim: str) -> list[str]:
     query = " ".join(keywords[:3]) # Use top 3 strongest keywords for broader search
     
     snippets = []
+    
+    # --- 1. Google Fact Check Tools API ---
+    if GOOGLE_FACT_CHECK_API_KEY:
+        try:
+            res = requests.get(
+                "https://factchecktools.googleapis.com/v1alpha1/claims:search",
+                params={"query": query, "key": GOOGLE_FACT_CHECK_API_KEY},
+                timeout=5
+            )
+            if res.status_code == 200:
+                data = res.json()
+                if 'claims' in data:
+                    for c in data['claims'][:2]:
+                        if 'claimReview' in c and c['claimReview']:
+                            review = c['claimReview'][0]
+                            publisher = review.get('publisher', {}).get('name', 'Fact-checker')
+                            rating = review.get('textualRating', 'Unknown')
+                            snippets.append(f"[Google Fact Check] {publisher} rating: {rating}. Original claim: {c.get('text', '')}")
+            else:
+                print(f"Google Fact Check API Error ({res.status_code}): {res.text}")
+        except Exception as e:
+            print(f"Google Fact Check API error: {e}")
+
+    # --- 2. NewsAPI.org ---
+    if NEWS_API_KEY:
+        try:
+            res = requests.get(
+                "https://newsapi.org/v2/everything",
+                params={"q": query, "apiKey": NEWS_API_KEY, "language": "en", "sortBy": "relevancy", "pageSize": 3},
+                timeout=5
+            )
+            if res.status_code == 200:
+                data = res.json()
+                if 'articles' in data:
+                    for art in data['articles']:
+                        desc = art.get('description')
+                        if desc and len(desc) > 20:
+                            snippets.append(f"[NewsAPI - {art.get('source', {}).get('name', 'News')}] {desc.strip()}")
+            else:
+                print(f"NewsAPI Error ({res.status_code}): {res.text}")
+        except Exception as e:
+            print(f"NewsAPI error: {e}")
+
     try:
-        # 2. Search Wikipedia for matching pages
+        # --- 3. Wikipedia Fallback / Semantic Search ---
         search_results = wikipedia.search(query, results=2)
         
+        wiki_snippets = []
         for title in search_results:
             try:
                 # 3. Fetch summary of the top matching articles (limit sentences for speed)
@@ -50,42 +102,39 @@ def search_trusted_sources(claim: str) -> list[str]:
                 
                 # Split summary into individual sentences to act as separate evidence snippets
                 sentences = [s.text.strip() for s in nlp(page_summary).sents if len(s.text.strip()) > 20]
-                snippets.extend(sentences)
+                wiki_snippets.extend([f"[Wikipedia] {s}" for s in sentences])
             except wikipedia.exceptions.DisambiguationError as e:
                 # If ambiguous, just grab the first option's summary instead of crashing
                 try:
                     page_summary = wikipedia.summary(e.options[0], sentences=2, auto_suggest=False)
                     sentences = [s.text.strip() for s in nlp(page_summary).sents if len(s.text.strip()) > 20]
-                    snippets.extend(sentences)
+                    wiki_snippets.extend([f"[Wikipedia] {s}" for s in sentences])
                 except Exception:
                     pass 
             except Exception:
                 pass
                 
-        # 4. Filter the extracted Wikipedia sentences using Semantic Similarity (SentenceTransformers)
-        if not snippets:
-            return []
+        # 4. Filter ONLY Wikipedia sentences using Semantic Similarity
+        filtered_wiki_snippets = []
+        if wiki_snippets:
+            claim_emb = embedder.encode(claim, convert_to_tensor=True)
+            evidence_embs = embedder.encode(wiki_snippets, convert_to_tensor=True)
             
-        claim_emb = embedder.encode(claim, convert_to_tensor=True)
-        evidence_embs = embedder.encode(snippets, convert_to_tensor=True)
-        
-        cosine_scores = util.cos_sim(claim_emb, evidence_embs)[0]
-        
-        # Keep top 3 most semantically relevant sentences from the Wikipedia summaries
-        top_k = min(3, len(snippets))
-        top_results = torch.topk(cosine_scores, k=top_k)
-        
-        filtered_snippets = []
-        for score, idx in zip(top_results[0], top_results[1]):
-            # Lower threshold slightly since live data is less perfectly aligned than mock data
-            if score.item() > 0.10: 
-                filtered_snippets.append(snippets[idx])
-                
-        return filtered_snippets
+            cosine_scores = util.cos_sim(claim_emb, evidence_embs)[0]
+            
+            # Keep top 3 most semantically relevant sentences from the Wikipedia summaries
+            top_k = min(3, len(wiki_snippets))
+            top_results = torch.topk(cosine_scores, k=top_k)
+            
+            for score, idx in zip(top_results[0], top_results[1]):
+                if score.item() > 0.10: 
+                    filtered_wiki_snippets.append(wiki_snippets[idx])
+                    
+        return snippets + filtered_wiki_snippets
         
     except Exception as e:
         print(f"Wikipedia search failed: {e}")
-        return []
+        return snippets
 
 def compute_evidence_similarity(claim: str, evidence: list[str]) -> str:
     """Determine whether the claim is SUPPORTED, CONTRADICTED, or INSUFFICIENT_EVIDENCE."""
