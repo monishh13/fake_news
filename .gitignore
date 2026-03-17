@@ -10,3 +10,5 @@ model_weights/
 .DS_Store
 .idea/
 .vscode/
+package.json
+package-lock.json

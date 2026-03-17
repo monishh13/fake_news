@@ -6,8 +6,9 @@ import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { 
     UploadCloud, FileText, AlertTriangle, Activity, Search, 
-    History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check 
+    History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check, Download 
 } from 'lucide-react';
+import html2pdf from 'html2pdf.js';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
 
 function cn(...inputs) { return twMerge(clsx(inputs)); }
@@ -133,9 +134,17 @@ export default function App() {
 
     // On Mount
     useEffect(() => {
-        // Load History
-        const saved = localStorage.getItem('aivera_history');
-        if (saved) { try { setHistory(JSON.parse(saved)); } catch (e) { } }
+        // Load History from Backend, fallback to localStorage
+        const loadHistory = async () => {
+            try {
+                const { data } = await axios.get(`${API_BASE}/history`);
+                setHistory(data.slice(0, 20));
+            } catch (err) {
+                const saved = localStorage.getItem('aivera_history');
+                if (saved) { try { setHistory(JSON.parse(saved)); } catch (e) { } }
+            }
+        };
+        loadHistory();
 
         // Check URL for ?report=id
         const urlParams = new URLSearchParams(window.location.search);
@@ -232,6 +241,25 @@ export default function App() {
         if (score >= 0.7) return '#34d399'; // emerald-400
         if (score >= 0.4) return '#fbbf24'; // amber-400
         return '#f43f5e'; // rose-500
+    };
+
+    const getCredibilityLabel = (score) => {
+        if (score >= 0.7) return 'Real / Authentic';
+        if (score >= 0.4) return 'Mixed / Uncertain';
+        return 'Fake / Misleading';
+    };
+
+    const handleDownloadPDF = () => {
+        const element = document.getElementById('report-content');
+        if (!element) return;
+        const opt = {
+            margin:       0.5,
+            filename:     `aivera_report_${result?.id || 'new'}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(element).save();
     };
 
     const formatShapData = (shapDict) => {
@@ -340,7 +368,7 @@ export default function App() {
             )}
 
             {result && !loading && (
-                <motion.div variants={itemVariants} className="space-y-8 mt-8">
+                <motion.div variants={itemVariants} className="space-y-8 mt-8" id="report-content">
                     {/* Hero Results Card */}
                     <GlassCard className="p-8 relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 border-accent/20">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 opacity-50"></div>
@@ -352,8 +380,11 @@ export default function App() {
                             </p>
                             
                             {/* Share Actions */}
-                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6">
-                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mr-2">Share Report</span>
+                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6" data-html2canvas-ignore="true">
+                                <button onClick={handleDownloadPDF} className="flex items-center gap-2 px-4 py-2 bg-accent/10 hover:bg-accent/20 border border-accent/20 text-accent rounded-full text-sm font-medium transition-all">
+                                    <Download size={16} /> Save PDF
+                                </button>
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mx-2">Share</span>
                                 <button onClick={handleShareCopy} className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] rounded-full text-sm font-medium transition-all">
                                     {shareCopied ? <Check size={16} className="text-emerald-400" /> : <Share2 size={16} />} 
                                     {shareCopied ? 'Copied Link!' : 'Copy Link'}
@@ -366,7 +397,10 @@ export default function App() {
 
                         <div className="flex flex-col items-center">
                             <TrustMeter score={result.overallCredibility} />
-                            <p className="mt-4 text-xs tracking-widest uppercase font-semibold text-muted-foreground">Overall Score</p>
+                            <p className="mt-4 text-xs tracking-widest uppercase font-semibold text-muted-foreground mb-1">Overall Score</p>
+                            <p className={cn("text-sm font-bold uppercase tracking-wide", result.overallCredibility >= 0.7 ? 'text-emerald-400' : (result.overallCredibility >= 0.4 ? 'text-amber-400' : 'text-rose-500'))}>
+                                {getCredibilityLabel(result.overallCredibility)}
+                            </p>
                         </div>
                     </GlassCard>
 
@@ -479,11 +513,11 @@ export default function App() {
                             >
                                 <div className="flex justify-between items-center mb-4">
                                     <span className="uppercase tracking-widest text-[10px] font-bold px-3 py-1 bg-[var(--bg-input)] rounded-full border border-[var(--border)] text-[var(--text-secondary)]">
-                                        {record.type}
+                                        {record.type || 'DBRECORD'}
                                     </span>
-                                    <span className="text-xs text-muted-foreground">{new Date(record.timestamp).toLocaleString()}</span>
+                                    <span className="text-xs text-muted-foreground">{new Date(record.timestamp || record.createdAt || new Date()).toLocaleString()}</span>
                                 </div>
-                                <h4 className="text-lg font-medium italic text-[var(--text-primary)] mb-4 line-clamp-2">"{record.query}"</h4>
+                                <h4 className="text-lg font-medium italic text-[var(--text-primary)] mb-4 line-clamp-2">"{record.query || (record.content ? record.content.substring(0, 80) + '...' : 'Saved Analysis')}"</h4>
                                 <div className="flex items-center gap-4 text-sm font-semibold">
                                     <div className="w-3 h-3 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.2)]" style={{ backgroundColor: getScoreColor(record.overallCredibility) }} />
                                     <span className="text-[var(--text-secondary)]">{Math.round(record.overallCredibility * 100)}% Credibility</span>
