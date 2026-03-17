@@ -70,25 +70,44 @@ def search_trusted_sources(claim: str) -> list[str]:
         except Exception as e:
             print(f"Google Fact Check API error: {e}")
 
-    # --- 2. NewsAPI.org ---
+    # --- 2. News API (NewsAPI.org or NewsData.io) ---
     if NEWS_API_KEY:
         try:
-            res = requests.get(
-                "https://newsapi.org/v2/everything",
-                params={"q": query, "apiKey": NEWS_API_KEY, "language": "en", "sortBy": "relevancy", "pageSize": 3},
-                timeout=5
-            )
-            if res.status_code == 200:
-                data = res.json()
-                if 'articles' in data:
-                    for art in data['articles']:
-                        desc = art.get('description')
-                        if desc and len(desc) > 20:
-                            snippets.append(f"[NewsAPI - {art.get('source', {}).get('name', 'News')}] {desc.strip()}")
+            if NEWS_API_KEY.startswith("pub_"):
+                # NewsData.io
+                res = requests.get(
+                    "https://newsdata.io/api/1/news",
+                    params={"q": query, "apikey": NEWS_API_KEY, "language": "en"},
+                    timeout=5
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    if 'results' in data:
+                        for art in data['results'][:3]:
+                            desc = art.get('description') or art.get('content')
+                            if desc and len(desc) > 20:
+                                source = art.get('source_id', 'News')
+                                snippets.append(f"[NewsData - {source}] {desc[:300].strip()}")
+                else:
+                    print(f"NewsData.io Error ({res.status_code}): {res.text}")
             else:
-                print(f"NewsAPI Error ({res.status_code}): {res.text}")
+                # NewsAPI.org
+                res = requests.get(
+                    "https://newsapi.org/v2/everything",
+                    params={"q": query, "apiKey": NEWS_API_KEY, "language": "en", "sortBy": "relevancy", "pageSize": 3},
+                    timeout=5
+                )
+                if res.status_code == 200:
+                    data = res.json()
+                    if 'articles' in data:
+                        for art in data['articles']:
+                            desc = art.get('description')
+                            if desc and len(desc) > 20:
+                                snippets.append(f"[NewsAPI - {art.get('source', {}).get('name', 'News')}] {desc.strip()}")
+                else:
+                    print(f"NewsAPI Error ({res.status_code}): {res.text}")
         except Exception as e:
-            print(f"NewsAPI error: {e}")
+            print(f"News API error: {e}")
 
     try:
         # --- 3. Wikipedia Fallback / Semantic Search ---
