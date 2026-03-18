@@ -6,14 +6,6 @@ transformers
 torch
 Pillow
 pytesseract
-fastapi
-uvicorn[standard]
-python-multipart
-spacy
-transformers
-torch
-Pillow
-pytesseract
 PyPDF2
 sentence-transformers
 shap
@@ -23,5 +15,7 @@ scikit-learn
 pydantic
 beautifulsoup4
 requests
+httpx
+redis
 wikipedia
 python-dotenv

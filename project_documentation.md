@@ -62,7 +62,7 @@ graph TD
 ## 3. Core Features & Methodology
 
 ### 🧠 Explainable AI (XAI)
-AIVera utilizes **SHAP (SHLine Explanations)** to provide word-level attribution. This allows users to see exactly which words or phrases (e.g., "shocking", "unverified") most heavily influenced the AI's credibility score.
+AIVera utilizes **SHAP (SHapley Additive exPlanations)** to provide word-level attribution. This allows users to see exactly which words or phrases (e.g., "shocking", "unverified") most heavily influenced the AI's credibility score.
 
 ### 🔍 Multi-Source Evidence Retrieval
 For every claim, AIVera performs real-time verification across three major sources:
