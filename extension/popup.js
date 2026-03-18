@@ -87,9 +87,21 @@ document.addEventListener('DOMContentLoaded', () => {
         html += `<button class="btn" style="margin-top:20px" id="open-dashboard">Open Full Dashboard</button>`;
         appDiv.innerHTML = html;
 
-        document.getElementById('open-dashboard').addEventListener('click', () => {
-            chrome.tabs.create({ url: `http://localhost:5173/?report=${data.id}` });
-        });
+        const dashboardBtn = document.getElementById('open-dashboard');
+        if (dashboardBtn) {
+            dashboardBtn.addEventListener('click', () => {
+                if (data && data.id) {
+                    // Save the full result so the content bridge can pass it to the page,
+                    // bypassing any database lookup (solves H2 in-memory reset issue).
+                    chrome.storage.local.set({ aivera_pending_report: data }, () => {
+                        chrome.tabs.create({ url: `http://localhost:5173/?report=${data.id}` });
+                    });
+                } else {
+                    alert("Analysis report ID not found. The report may not have been saved to the database.");
+                }
+            });
+        }
+
     }
 
     function getScoreClass(score) {

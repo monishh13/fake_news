@@ -134,7 +134,7 @@ export default function App() {
 
     // On Mount
     useEffect(() => {
-        // Load History from Backend, fallback to localStorage
+        // Load history from backend, fallback to localStorage
         const loadHistory = async () => {
             try {
                 const { data } = await axios.get(`${API_BASE}/history`);
@@ -146,13 +146,34 @@ export default function App() {
         };
         loadHistory();
 
-        // Check URL for ?report=id
         const urlParams = new URLSearchParams(window.location.search);
         const reportId = urlParams.get('report');
+
         if (reportId) {
+            // Listen for the full result payload from the content bridge.
+            // When React sends AIVERA_READY, the bridge replies with AIVERA_REPORT.
+            // This is race-free because the bridge waits for our signal.
+            const onMessage = (event) => {
+                if (event.source === window && event.data && event.data.type === 'AIVERA_REPORT') {
+                    window.removeEventListener('message', onMessage);
+                    setError('');          // clear any API error that may have raced
+                    setResult(event.data.data);
+                    addToHistory(event.data.data, 'extension', event.data.data.content || 'Extension Analysis');
+                    window.history.replaceState({}, '', window.location.pathname);
+                }
+            };
+            window.addEventListener('message', onMessage);
+
+            // Signal the content bridge that React is ready
+            window.postMessage({ type: 'AIVERA_READY' }, '*');
+
+            // Also kick off the API fetch as a fallback (works if DB is intact)
             fetchReport(reportId);
+
+            return () => window.removeEventListener('message', onMessage);
         }
     }, []);
+
 
     const [isFetchingReport, setIsFetchingReport] = useState(false);
     const fetchReport = async (id) => {
@@ -161,7 +182,7 @@ export default function App() {
             const { data } = await axios.get(`${API_BASE}/${id}`);
             setResult(data);
         } catch (err) {
-            setError("Couldn't find that report. It may have been deleted or the ID is invalid.");
+            setError("Couldn't find that report. It may have been deleted, the ID is invalid, or the backend was restarted (clearing in-memory data).");
         } finally {
             setIsFetchingReport(false);
         }
@@ -252,14 +273,30 @@ export default function App() {
     const handleDownloadPDF = () => {
         const element = document.getElementById('report-content');
         if (!element) return;
+        
+        // Apply printing class for high-quality capture
+        element.classList.add('printing-pdf');
+        
         const opt = {
             margin:       0.5,
             filename:     `aivera_report_${result?.id || 'new'}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true },
+            html2canvas:  { 
+                scale: 3, 
+                useCORS: true,
+                logging: false,
+                letterRendering: true
+            },
             jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
         };
-        html2pdf().set(opt).from(element).save();
+
+        // Use promise to ensure class is removed after capture
+        html2pdf().set(opt).from(element).save().then(() => {
+            element.classList.remove('printing-pdf');
+        }).catch(err => {
+            console.error("PDF generation failed:", err);
+            element.classList.remove('printing-pdf');
+        });
     };
 
     const formatShapData = (shapDict) => {
