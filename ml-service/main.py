@@ -87,6 +87,21 @@ def _input_hash(text: str) -> str:
     return hashlib.sha256(text.strip().lower().encode()).hexdigest()[:16]
 
 
+@app.get("/nli-debug")
+async def nli_debug():
+    """Debug endpoint: shows which NLI label indices are active in this process."""
+    from services import evidence_service as ev
+    claim = "Water boils at 100 degrees Celsius at standard atmospheric pressure."
+    snippet = "Because of this, water boils at 100\u00b0C under standard pressure."
+    results = ev._nli_classify_snippets(claim, [snippet])
+    return {
+        "NLI_IDX_ENTAILMENT":    ev.NLI_IDX_ENTAILMENT,
+        "NLI_IDX_CONTRADICTION": ev.NLI_IDX_CONTRADICTION,
+        "NLI_IDX_NEUTRAL":       ev.NLI_IDX_NEUTRAL,
+        "NLI_IS_BINARY":         ev.NLI_IS_BINARY,
+        "test_snippet_result":   results[0] if results else "NO RESULT",
+    }
+
 async def _run_analysis_pipeline(text: str) -> dict:
     """
     Core analysis pipeline shared by all input endpoints.
@@ -142,31 +157,40 @@ async def _run_analysis_pipeline(text: str) -> dict:
         evidence_snippets = await search_trusted_sources(claim)
         ev_ms = int((time.perf_counter() - t_ev) * 1000)
 
-        claim_status = compute_evidence_similarity(claim, evidence_snippets)
+        claim_status, ev_explanation = compute_evidence_similarity(claim, evidence_snippets)
 
         # ── 4c. Adjust score with evidence signal ──────────────────────────────
         final_score = base_score
         if claim_status == "SUPPORTED":
             final_score = min(final_score + 0.25, 1.0)
         elif claim_status == "CONTRADICTED":
-            final_score = max(final_score - 0.25, 0.0)
+            final_score = max(final_score - 0.35, 0.0)
+        elif claim_status == "INSUFFICIENT_EVIDENCE":
+            # Cap blindly high model scores when no direct evidence found online
+            if final_score > 0.5:
+                final_score = max(final_score - 0.40, 0.45)
 
         label = "REAL" if final_score >= 0.5 else "FAKE"
         logger.info(
             "[%s] claim_hash=%s  label=%s  score=%.4f  status=%s  "
-            "nlp_ms=%d  model_ms=%d  evidence_ms=%d  evidence_count=%d",
+            "nlp_ms=%d  model_ms=%d  evidence_ms=%d  evidence_count=%d  "
+            "entailment_votes=%d  contradiction_votes=%d",
             h, _input_hash(claim), label, final_score, claim_status,
             nlp_ms, model_ms, ev_ms, len(evidence_snippets),
+            ev_explanation.get("entailment_votes", 0),
+            ev_explanation.get("contradiction_votes", 0),
         )
 
         analyzed_claims.append({
-            "claim_text":        claim,
-            "credibility_score": round(final_score, 6),
-            "status":            claim_status,
-            "evidence_snippets": evidence_snippets,
-            "shap_explanation":  explanation,
+            "claim_text":           claim,
+            "credibility_score":    round(final_score, 6),
+            "status":               claim_status,
+            "evidence_snippets":    evidence_snippets,
+            "evidence_explanation": ev_explanation,
+            "shap_explanation":     explanation,
         })
         total_score += final_score
+
 
     overall = total_score / len(claims)
     result = {

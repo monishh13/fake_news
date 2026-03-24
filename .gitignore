@@ -11,3 +11,12 @@ model_weights/
 .idea/
 .vscode/
 *.json
+
+# Local debug and test files
+ml-service/debug_*.py
+ml-service/print_results.py
+ml-service/test_pipeline.py
+ml-service/test_full.txt
+
+# Local caches
+ml-service/cache/

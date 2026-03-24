@@ -12,7 +12,7 @@
     <img alt="ML" src="https://img.shields.io/badge/ML%20Service-FastAPI-blue" />
 </a>
 <a href="#">
-    <img alt="Model" src="https://img.shields.io/badge/Model-DistilBERT-orange" />
+    <img alt="Model" src="https://img.shields.io/badge/Model-RoBERTa-orange" />
 </a>
 <a href="#">
     <img alt="Security" src="https://img.shields.io/badge/Security-SSRF%20Protected-red" />
@@ -20,7 +20,7 @@
 
 <br><br>
 
-AIVera is a secure, full-stack AI ecosystem for misinformation detection through deep credibility analysis and transparent explainability. It analyzes individual claims with a fine-tuned DistilBERT transformer, verifies them against multiple live evidence sources, and explains every prediction with word-level SHAP attributions.
+AIVera is a secure, full-stack AI ecosystem for misinformation detection through deep credibility analysis and transparent explainability. It analyzes individual claims with a high-accuracy fine-tuned RoBERTa transformer, verifies them against multiple live evidence sources, and explains every prediction with word-level SHAP attributions.
 
 ---
 
@@ -33,7 +33,7 @@ AIVera is a secure, full-stack AI ecosystem for misinformation detection through
 ## 🌟 Key Features
 
 ### 🧠 Deep Credibility Analysis
-- **DistilBERT Scoring**: Custom-trained transformer model fine-tuned on the LIAR dataset for misinformation detection.
+- **RoBERTa Scoring**: High-accuracy transformer model fine-tuned on the WELFake dataset for misinformation detection (95%+ validation accuracy).
 - **Calibrated Confidence**: Platt scaling applied to raw softmax output — scores are genuinely calibrated probabilities, not overconfident logit values.
 - **Claim Segmentation**: Long-form text, PDFs, and images are automatically broken into individual declarative claims for granular verification.
 
@@ -86,7 +86,7 @@ Every evidence snippet is tagged with a **domain credibility score** (Reuters = 
 ┌─────────────────────────────────────────────────────────────────┐
 │              FASTAPI ML SERVICE  :8000                          │
 │  ┌───────────┐ ┌───────────┐ ┌──────────┐ ┌─────────────────┐  │
-│  │ spaCy NLP │ │DistilBERT │ │   SHAP   │ │Evidence Retrieval│  │
+│  │ spaCy NLP │ │ RoBERTa   │ │   SHAP   │ │Evidence Retrieval│  │
 │  │ Segmenter │ │+ Platt Cal│ │ XAI      │ │(parallel async) │  │
 │  └───────────┘ └───────────┘ └──────────┘ └────────┬────────┘  │
 │                                                     │            │
@@ -194,7 +194,14 @@ TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
-Launches all services: ML service → Spring Boot → React dev server.
+Launches all services: ML service → Spring Boot → React dev server. (Automatically downloads and configures Maven if missing).
+
+### 3. Automated Testing
+You can run the end-to-end integration test against the live API to verify claim analysis, SHAP evidence, and NLI status:
+```bash
+cd ml-service
+python test_pipeline.py
+```
 
 ### 3. Docker Compose (All services including Redis)
 ```bash

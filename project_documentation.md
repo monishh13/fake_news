@@ -5,7 +5,7 @@
 AIVera is a secure, full-stack AI ecosystem designed to combat misinformation through advanced credibility analysis and transparent explainability. Unlike traditional "black-box" models, AIVera:
 
 - Segments content into individual **declarative claims** and evaluates each independently.
-- Produces **calibrated confidence scores** (Platt scaling applied to DistilBERT's raw softmax output).
+- Produces **calibrated confidence scores** (Platt scaling applied to RoBERTa's raw softmax output).
 - Explains every prediction with **word-level SHAP attributions** and explicit uncertainty communication.
 - Verifies claims against **four parallel evidence sources**, each tagged with a domain credibility weight.
 - Enforces **security-by-design**: SSRF protection on URL inputs, HTML sanitization, CORS lockdown, and rate limiting.
@@ -38,7 +38,7 @@ graph TD
         MLService[FastAPI Engine]
         Sanitize[Input Sanitizer\nHTML Strip + Length Cap]
         NLP[spaCy Claim Segmenter]
-        Model[DistilBERT + Platt Calibration]
+        Model[RoBERTa + Platt Calibration]
         XAI[SHAP Explainability\nfile-cached]
         Evidence[Evidence Engine\nasyncio.gather — parallel]
         OCR[Tesseract OCR]
@@ -122,11 +122,15 @@ All text inputs are sanitized before entering the NLP pipeline or database:
 
 ## 4. Core Features & Methodology
 
-### 4.1 Explainable AI (SHAP)
+### 4.1 Interactive Explainable AI (XAI) UI
 
-SHAP (SHapley Additive exPlanations) provides word-level attribution. For each token:
-- Positive impact → pushes score toward "Real/Credible."
-- Negative impact → pushes score toward "Fake/Suspicious."
+AIVera moves beyond algorithmic black boxes by exposing raw SHAP (SHapley Additive exPlanations) values through an accessible, highly interactive UI suite:
+
+1. **Inline Claim Heatmap**: Each word in a parsed claim acts as a colored token. Green tokens boost the credibility score; red tokens lower it. Opacity scales with the mathematical strength of the SHAP attribution.
+2. **Influence Breakdown**: A two-column structure sorts words by influence—"↑ Boosted the score" vs. "↓ Lowered the score"—translating decimal values into human-readable pills (Very Strong, Strong, Moderate, Slight).
+3. **Word Explanation Panel**: Clicking any highlighted word dynamically generates a plain-language explanation of why the model flagged it (e.g., "This term tends to appear in unverified content").
+4. **Zone-Based Score Bar & Verdicts**: Replaces raw percentages with a 7-segment gradient scale (Disputed → Uncertain → Verified) and context-aware guidance cards.
+5. **Expandable Evidence Cards**: Retrieved evidence is grouped by assigned credibility tiers (High/Medium/Low/Context) and can be interactively filtered and expanded.
 
 **Important caveats communicated to users:**
 - Attributions are indicative only; they reflect statistical associations in training data.
@@ -135,7 +139,7 @@ SHAP (SHapley Additive exPlanations) provides word-level attribution. For each t
 
 ### 4.2 Calibrated Confidence Scoring
 
-Raw DistilBERT softmax output is **not** a probability — it is overconfident. Platt scaling is applied:
+Raw RoBERTa softmax output is **not** a probability — it is overconfident. Platt scaling is applied:
 
 ```
 p_calibrated = 1 / (1 + exp(A × raw_score + B))
@@ -179,7 +183,7 @@ All four sources are fetched **in parallel** (`asyncio.gather()`). Each snippet 
 |:------|:------------|
 | **Frontend** | React 18, Vite, Tailwind CSS, Framer Motion, Recharts, Lucide Icons |
 | **Backend** | Java 17, Spring Boot 3.x, Spring Data JPA, PostgreSQL / H2 |
-| **ML Service** | Python 3.10, FastAPI, PyTorch, HuggingFace (DistilBERT), SHAP, spaCy, SentenceTransformers, Tesseract OCR |
+| **ML Service** | Python 3.10, FastAPI, PyTorch, HuggingFace (RoBERTa), SHAP, spaCy, SentenceTransformers, Tesseract OCR |
 | **Caching** | Redis 7 (optional) |
 | **Observability** | Python `logging`, Prometheus (`prometheus-fastapi-instrumentator`) |
 | **DevOps** | Docker, Docker Compose, PowerShell Scripting |
@@ -302,7 +306,7 @@ The extension routes all traffic through the Spring Boot gateway (port `8081`), 
 
 ## 10. Future Enhancements
 
-- **DeBERTa-v3 / RoBERTa**: Upgrade from DistilBERT for 4–8 point F1 improvement on LIAR.
+- **DeBERTa-v3 / LLaMA 3**: Upgrade to even more powerful LLMs for deeper semantic claim understanding.
 - **LIME as SHAP alternative**: Much faster per-prediction; useful for real-time UX.
 - **FAISS vector store**: Pre-embed canonical fact-check topics; eliminate per-request Wikipedia embedding.
 - **Feedback loop**: Allow users to flag incorrect predictions; log disagreements as a fine-tuning dataset.
