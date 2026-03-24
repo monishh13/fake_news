@@ -19,4 +19,8 @@ ml-service/test_pipeline.py
 ml-service/test_full.txt
 
 # Local caches
-ml-service/cache/
+ml-service/cache/
+
+# Local build tools
+maven/
+
