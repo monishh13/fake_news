@@ -19,3 +19,4 @@ httpx
 redis
 wikipedia
 python-dotenv
+prometheus-fastapi-instrumentator

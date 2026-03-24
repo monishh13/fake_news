@@ -29,8 +29,8 @@ values returned by sklearn.linear_model.LogisticRegression fitted on
 import math
 
 # Platt scaling parameters (see module docstring for override instructions)
-_A: float = -2.0
-_B: float = 0.5
+_A: float = -10.934547
+_B: float = 5.424226
 
 
 def calibrate_score(raw_score: float) -> float:

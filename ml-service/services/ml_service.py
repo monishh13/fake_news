@@ -5,12 +5,16 @@ import shap
 import os
 import hashlib
 import json
-from calibration import calibrate_score
+from .calibration import calibrate_score
 
 CACHE_DIR = "cache/shap"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-model_path = "./model_weights/distilbert"
+model_path = "./model_weights/roberta"
+# Backward compatibility check
+if not os.path.exists(model_path):
+    model_path = "./model_weights/distilbert"
+
 has_model = os.path.exists(model_path)
 
 if has_model:

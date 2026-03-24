@@ -71,9 +71,12 @@ document.addEventListener('DOMContentLoaded', () => {
                                     } else if (snippet.startsWith('[Google Fact Check]')) {
                                         badge = '<span class="source-badge source-google">FACT CHECK</span>';
                                         text = snippet.replace('[Google Fact Check] ', '');
-                                    } else if (snippet.startsWith('[NewsAPI')) {
+                                    } else if (snippet.startsWith('[NewsAPI') || snippet.startsWith('[NewsData')) {
                                         badge = '<span class="source-badge source-news">NEWS</span>';
-                                        text = snippet.replace(/\[NewsAPI - .*?\] /, '');
+                                        text = snippet.replace(/\[(NewsAPI|NewsData) - .*?\] /, '');
+                                    } else if (snippet.startsWith('[GDELT')) {
+                                        badge = '<span class="source-badge source-news">GDELT</span>';
+                                        text = snippet.replace(/\[GDELT - .*?\] /, '');
                                     }
                                     return `<div class="evidence-item">${badge}${text}</div>`;
                                 }).join('')}

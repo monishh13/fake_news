@@ -83,7 +83,8 @@ const EvidenceItem = ({ evidenceText }) => {
     // Determine badge color
     let badgeColor = "bg-[var(--bg-input)] text-[var(--text-primary)] border-[var(--border)]";
     if (rawSource.includes('Google') || rawSource.includes('Fact Check')) badgeColor = "bg-blue-500/20 text-blue-400 border-blue-500/30";
-    else if (rawSource.includes('NewsAPI')) badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+    else if (rawSource.includes('NewsAPI') || rawSource.includes('NewsData')) badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/30";
+    else if (rawSource.includes('GDELT')) badgeColor = "bg-orange-500/20 text-orange-400 border-orange-500/30";
     else if (rawSource.includes('Wikipedia')) badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
 
     return (
@@ -110,7 +111,7 @@ const ClipboardButton = ({ text }) => {
         setTimeout(() => setCopied(false), 2000);
     };
     return (
-        <button onClick={handleCopy} className="p-1.5 text-muted-foreground hover:text-primary transition-colors hover:bg-[var(--bg-input)] rounded-md" title="Copy to clipboard">
+        <button onClick={handleCopy} aria-label="Copy to clipboard" className="p-1.5 text-muted-foreground hover:text-primary transition-colors hover:bg-[var(--bg-input)] rounded-md" title="Copy to clipboard">
             {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
         </button>
     );
@@ -447,8 +448,9 @@ export default function App() {
                             <Activity className="text-accent" /> Full Claim Breakdown
                         </h3>
                         
-                        {result.claims?.map((claim, idx) => (
-                            <GlassCard key={idx} className="p-0 overflow-hidden group hover:border-[var(--border)] transition-colors">
+                        {result.claims?.map((claim, idx) => {
+                            const isLowConfidence = claim.credibilityScore >= 0.35 && claim.credibilityScore <= 0.65;
+                            return (<GlassCard key={idx} className="p-0 overflow-hidden group hover:border-[var(--border)] transition-colors">
                                 <div className="p-6 border-b border-[var(--border)]">
                                     <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
                                         <div className="flex-1">
@@ -484,12 +486,23 @@ export default function App() {
                                     </div>
                                 </div>
 
+                                {/* ── Uncertainty disclaimer ── */}
+                                {isLowConfidence && (
+                                    <div className="mx-6 mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
+                                        <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
+                                        <span><strong>Low confidence</strong> — this claim score is near 0.5, meaning the model is uncertain. Treat this result with caution and consider manual verification from primary sources.</span>
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-1 lg:grid-cols-2 bg-[var(--bg-input)] origin-top divide-y lg:divide-y-0 lg:divide-x divide-white/5">
                                     <div className="p-6">
-                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-6 flex items-center justify-between">
+                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-3 flex items-center justify-between">
                                             Explainability (SHAP)
                                             <span className="text-[10px] text-[var(--text-muted)] lowercase font-normal italic">word impact</span>
                                         </h4>
+                                        <p className="text-[10px] text-[var(--text-muted)] italic mb-4 leading-relaxed" role="note">
+                                            ⚠️ SHAP attributions are indicative only. The model may be unreliable on political claims, satire, and emerging topics. A highlighted word does not imply factual falsity — it reflects statistical association in training data.
+                                        </p>
                                         <div className="h-48">
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart data={formatShapData(claim.shapExplanation)} layout="vertical" margin={{ top: 0, right: 0, left: 40, bottom: 0 }}>
@@ -523,8 +536,8 @@ export default function App() {
                                         )}
                                     </div>
                                 </div>
-                            </GlassCard>
-                        ))}
+                            </GlassCard>);
+                        })}
                     </div>
                 </motion.div>
             )}
@@ -686,7 +699,7 @@ export default function App() {
                     </div>
                     
                     <div className="flex items-center gap-4">
-                        <button onClick={toggleTheme} className="w-10 h-10 rounded-full bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] flex items-center justify-center transition-colors text-[var(--text-secondary)]">
+                        <button onClick={toggleTheme} aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'} className="w-10 h-10 rounded-full bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] flex items-center justify-center transition-colors text-[var(--text-secondary)]">
                             {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
                         </button>
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border border-[var(--border)] flex items-center justify-center font-bold shadow-inner cursor-pointer hover:border-accent transition-colors">

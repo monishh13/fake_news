@@ -1,3 +1,14 @@
+"""
+Evidence Service — parallel retrieval from Wikipedia, Google Fact Check,
+NewsAPI/NewsData, and GDELT (free fallback).
+
+Key improvements:
+- GDELT added as a free, unlimited fallback when NewsAPI returns no results.
+- Source credibility scoring: evidence is tagged with a quality weight so
+  the caller can distinguish Reuters (1.0) from unknown tabloids (0.4).
+- All remote calls remain parallel via asyncio.gather().
+"""
+
 import asyncio
 import httpx
 import torch
@@ -24,6 +35,44 @@ load_dotenv()
 GOOGLE_FACT_CHECK_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
 
+# ── Source credibility registry ───────────────────────────────────────────────
+# Based on internationally recognised journalistic standards.
+# Key = lowercased domain or source name fragment; Value = 0.0–1.0 credibility.
+_DOMAIN_CREDIBILITY: dict[str, float] = {
+    # Premium / wire services
+    "reuters":    1.0,
+    "ap news":    1.0,
+    "apnews":     1.0,
+    "bbc":        0.95,
+    "npr":        0.95,
+    "theguardian":0.92,
+    "guardian":   0.92,
+    "nytimes":    0.90,
+    "washingtonpost": 0.90,
+    "economist":  0.90,
+    # Science / fact-check
+    "snopes":     0.90,
+    "politifact": 0.90,
+    "factcheck":  0.90,
+    "science":    0.85,
+    # Mid-tier
+    "cnn":        0.75,
+    "fox":        0.65,
+    "dailymail":  0.45,
+    "nypost":     0.50,
+    "buzzfeed":   0.55,
+}
+_DEFAULT_CREDIBILITY = 0.60  # unknown sources get a conservative default
+
+
+def _credibility_for_source(source_name: str) -> float:
+    """Return a 0–1 credibility score for a publication name."""
+    lower = source_name.lower()
+    for key, score in _DOMAIN_CREDIBILITY.items():
+        if key in lower:
+            return score
+    return _DEFAULT_CREDIBILITY
+
 
 def extract_keywords_entities(text: str) -> list[str]:
     doc = nlp(text)
@@ -32,7 +81,7 @@ def extract_keywords_entities(text: str) -> list[str]:
     return list(set(entities + keywords))
 
 
-# ── Async helpers for each source ──────────────────────────────────────────────
+# ── Async helpers for each source ─────────────────────────────────────────────
 
 async def _fetch_google_fact_check(client: httpx.AsyncClient, query: str) -> list[str]:
     """Call Google Fact Check Tools API asynchronously."""
@@ -53,9 +102,11 @@ async def _fetch_google_fact_check(client: httpx.AsyncClient, query: str) -> lis
                     review = reviews[0]
                     publisher = review.get("publisher", {}).get("name", "Fact-checker")
                     rating = review.get("textualRating", "Unknown")
+                    cred = _credibility_for_source(publisher)
                     snippets.append(
                         f"[Google Fact Check] {publisher} rating: {rating}. "
-                        f"Original claim: {c.get('text', '')}"
+                        f"Original claim: {c.get('text', '')} "
+                        f"[credibility:{cred:.2f}]"
                     )
             return snippets
         else:
@@ -84,7 +135,11 @@ async def _fetch_news_api(client: httpx.AsyncClient, query: str) -> list[str]:
                     desc = art.get("description") or art.get("content")
                     if desc and len(desc) > 20:
                         source = art.get("source_id", "News")
-                        snippets.append(f"[NewsData - {source}] {desc[:300].strip()}")
+                        cred = _credibility_for_source(source)
+                        snippets.append(
+                            f"[NewsData - {source}] {desc[:300].strip()} "
+                            f"[credibility:{cred:.2f}]"
+                        )
                 return snippets
             else:
                 print(f"NewsData.io Error ({res.status_code}): {res.text}")
@@ -104,14 +159,53 @@ async def _fetch_news_api(client: httpx.AsyncClient, query: str) -> list[str]:
                 for art in data.get("articles", []):
                     desc = art.get("description")
                     if desc and len(desc) > 20:
+                        source_name = art.get("source", {}).get("name", "News")
+                        cred = _credibility_for_source(source_name)
                         snippets.append(
-                            f"[NewsAPI - {art.get('source', {}).get('name', 'News')}] {desc.strip()}"
+                            f"[NewsAPI - {source_name}] {desc.strip()} "
+                            f"[credibility:{cred:.2f}]"
                         )
                 return snippets
             else:
                 print(f"NewsAPI Error ({res.status_code}): {res.text}")
     except Exception as e:
         print(f"News API error: {e}")
+    return []
+
+
+async def _fetch_gdelt(client: httpx.AsyncClient, query: str) -> list[str]:
+    """
+    Fetch news results from GDELT GKG (Global Knowledge Graph).
+    GDELT is completely free with no daily request limits — used as a
+    fallback when NewsAPI is unavailable or has exceeded its quota.
+    """
+    try:
+        res = await client.get(
+            "https://api.gdeltproject.org/api/v2/doc/doc",
+            params={
+                "query":      query,
+                "mode":       "ArtList",
+                "maxrecords": 5,
+                "format":     "json",
+            },
+            timeout=8,
+        )
+        if res.status_code == 200:
+            data = res.json()
+            snippets = []
+            for art in (data.get("articles") or [])[:3]:
+                title = art.get("title", "").strip()
+                domain = art.get("domain", "gdelt")
+                if title and len(title) > 10:
+                    cred = _credibility_for_source(domain)
+                    snippets.append(
+                        f"[GDELT - {domain}] {title} [credibility:{cred:.2f}]"
+                    )
+            return snippets
+        else:
+            print(f"GDELT API Error ({res.status_code})")
+    except Exception as e:
+        print(f"GDELT API error: {e}")
     return []
 
 
@@ -148,12 +242,15 @@ def _fetch_wikipedia_sync(query: str) -> list[str]:
         return []
 
 
-# ── Public async interface ──────────────────────────────────────────────────────
+# ── Public async interface ────────────────────────────────────────────────────
 
 async def search_trusted_sources(claim: str) -> list[str]:
     """
-    Retrieve evidence snippets from all three sources **in parallel**.
+    Retrieve evidence snippets from all sources **in parallel**.
     Total latency ≈ max(individual latencies) instead of their sum.
+
+    GDELT is fired concurrently with the other sources and its results are
+    included when NewsAPI returns no usable snippets (free unlimited fallback).
     """
     if not embedder:
         return []
@@ -166,19 +263,23 @@ async def search_trusted_sources(claim: str) -> list[str]:
 
     query = " ".join(keywords[:3])
 
-    # Fire all three sources concurrently
+    # Fire all four sources concurrently
     loop = asyncio.get_event_loop()
     async with httpx.AsyncClient() as client:
         google_task = _fetch_google_fact_check(client, query)
-        news_task = _fetch_news_api(client, query)
-        wiki_task = loop.run_in_executor(None, _fetch_wikipedia_sync, query)
+        news_task   = _fetch_news_api(client, query)
+        gdelt_task  = _fetch_gdelt(client, query)
+        wiki_task   = loop.run_in_executor(None, _fetch_wikipedia_sync, query)
 
-        google_snippets, news_snippets, wiki_snippets_raw = await asyncio.gather(
-            google_task, news_task, wiki_task
+        google_snippets, news_snippets, gdelt_snippets, wiki_snippets_raw = await asyncio.gather(
+            google_task, news_task, gdelt_task, wiki_task
         )
 
+    # Use GDELT only when NewsAPI/NewsData returned nothing
+    final_news = news_snippets if news_snippets else gdelt_snippets
+
     # Semantic filter on Wikipedia results only
-    filtered_wiki = []
+    filtered_wiki: list[str] = []
     if wiki_snippets_raw and embedder:
         claim_emb = embedder.encode(claim, convert_to_tensor=True)
         evidence_embs = embedder.encode(wiki_snippets_raw, convert_to_tensor=True)
@@ -189,7 +290,7 @@ async def search_trusted_sources(claim: str) -> list[str]:
             if score.item() > 0.10:
                 filtered_wiki.append(wiki_snippets_raw[idx])
 
-    return google_snippets + news_snippets + filtered_wiki
+    return google_snippets + final_news + filtered_wiki
 
 
 def compute_evidence_similarity(claim: str, evidence: list[str]) -> str:
