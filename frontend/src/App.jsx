@@ -9,7 +9,7 @@ import {
     History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check, Download 
 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
+import { VerdictBadge, ZoneScoreBar, ContextualNote, ClaimHeatmap, SummaryStrip, InfluenceBreakdown, WordExplanationPanel, EvidenceCard, ClaimCard } from './ui_components';
 
 function cn(...inputs) { return twMerge(clsx(inputs)); }
 
@@ -64,43 +64,7 @@ const TrustMeter = ({ score }) => {
     );
 };
 
-// -- Evidence Badge Formatter --
-const EvidenceItem = ({ evidenceText }) => {
-    // Regex to capture "[Source Name] The rest of the text"
-    const match = evidenceText.match(/^\[(.*?)\]\s*(.*)$/);
-    if (!match) {
-        return (
-            <li className="text-sm leading-relaxed text-[var(--text-secondary)] relative pl-5 group/ev">
-                <span className="absolute left-0 top-1 text-accent opacity-60">→</span>
-                {evidenceText}
-                <div className="absolute top-0 -right-2 opacity-0 group-hover/ev:opacity-100 transition-opacity"><ClipboardButton text={evidenceText} /></div>
-            </li>
-        );
-    }
-    
-    const [, rawSource, cleanText] = match;
-    
-    // Determine badge color
-    let badgeColor = "bg-[var(--bg-input)] text-[var(--text-primary)] border-[var(--border)]";
-    if (rawSource.includes('Google') || rawSource.includes('Fact Check')) badgeColor = "bg-blue-500/20 text-blue-400 border-blue-500/30";
-    else if (rawSource.includes('NewsAPI') || rawSource.includes('NewsData')) badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/30";
-    else if (rawSource.includes('GDELT')) badgeColor = "bg-orange-500/20 text-orange-400 border-orange-500/30";
-    else if (rawSource.includes('Wikipedia')) badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
 
-    return (
-        <li className="text-sm leading-relaxed text-[var(--text-primary)] relative flex flex-col gap-2 group/ev p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] hover:border-[var(--border)] transition-colors">
-            <div className="flex justify-between items-start">
-                <span className={cn("text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-md border", badgeColor)}>
-                    {rawSource}
-                </span>
-                <div className="opacity-0 group-hover/ev:opacity-100 transition-opacity">
-                    <ClipboardButton text={cleanText} />
-                </div>
-            </div>
-            <p className="pl-1 italic text-[var(--text-secondary)]">{cleanText}</p>
-        </li>
-    );
-};
 
 // -- Clipboard Button Component --
 const ClipboardButton = ({ text }) => {
@@ -300,13 +264,7 @@ export default function App() {
         });
     };
 
-    const formatShapData = (shapDict) => {
-        if (!shapDict) return [];
-        return Object.entries(shapDict)
-            .map(([word, score]) => ({ word, score }))
-            .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-            .slice(0, 8);
-    };
+
 
     const shareUrl = result?.id ? `${window.location.origin}${window.location.pathname}?report=${result.id}` : '';
     const shareText = result ? `Check out this fact-check report from AIVera: Credibility ${Math.round(result.overallCredibility * 100)}%` : '';
@@ -448,96 +406,9 @@ export default function App() {
                             <Activity className="text-accent" /> Full Claim Breakdown
                         </h3>
                         
-                        {result.claims?.map((claim, idx) => {
-                            const isLowConfidence = claim.credibilityScore >= 0.35 && claim.credibilityScore <= 0.65;
-                            return (<GlassCard key={idx} className="p-0 overflow-hidden group hover:border-[var(--border)] transition-colors">
-                                <div className="p-6 border-b border-[var(--border)]">
-                                    <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
-                                        <div className="flex-1">
-                                            <div className="flex items-start gap-2">
-                                                <p className="text-lg font-medium text-[var(--text-primary)] leading-relaxed italic">"{claim.claimText}"</p>
-                                                <ClipboardButton text={claim.claimText} />
-                                            </div>
-                                        </div>
-                                        <div className={cn(
-                                            "uppercase tracking-widest text-[10px] font-bold px-3 py-1.5 rounded-full border",
-                                            claim.status.startsWith('SUPPORTED') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                            claim.status.startsWith('CONTRADICTED') ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
-                                            "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                        )}>
-                                            {claim.status.replace('_', ' ')}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-4 text-sm font-bold mt-2">
-                                        <div className="flex-1 h-2 bg-[var(--bg-sidebar)] rounded-full overflow-hidden border border-[var(--border)]">
-                                            <motion.div 
-                                                className="h-full rounded-full"
-                                                style={{ backgroundColor: getScoreColor(claim.credibilityScore) }}
-                                                initial={{ width: 0 }}
-                                                whileInView={{ width: `${claim.credibilityScore * 100}%` }}
-                                                viewport={{ once: true }}
-                                                transition={{ duration: 1, delay: 0.2 }}
-                                            />
-                                        </div>
-                                        <span style={{ color: getScoreColor(claim.credibilityScore) }}>
-                                            {Math.round(claim.credibilityScore * 100)}% Verified
-                                        </span>
-                                    </div>
-                                </div>
-
-                                {/* ── Uncertainty disclaimer ── */}
-                                {isLowConfidence && (
-                                    <div className="mx-6 mb-4 flex items-start gap-2 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs">
-                                        <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-                                        <span><strong>Low confidence</strong> — this claim score is near 0.5, meaning the model is uncertain. Treat this result with caution and consider manual verification from primary sources.</span>
-                                    </div>
-                                )}
-
-                                <div className="grid grid-cols-1 lg:grid-cols-2 bg-[var(--bg-input)] origin-top divide-y lg:divide-y-0 lg:divide-x divide-white/5">
-                                    <div className="p-6">
-                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-3 flex items-center justify-between">
-                                            Explainability (SHAP)
-                                            <span className="text-[10px] text-[var(--text-muted)] lowercase font-normal italic">word impact</span>
-                                        </h4>
-                                        <p className="text-[10px] text-[var(--text-muted)] italic mb-4 leading-relaxed" role="note">
-                                            ⚠️ SHAP attributions are indicative only. The model may be unreliable on political claims, satire, and emerging topics. A highlighted word does not imply factual falsity — it reflects statistical association in training data.
-                                        </p>
-                                        <div className="h-48">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={formatShapData(claim.shapExplanation)} layout="vertical" margin={{ top: 0, right: 0, left: 40, bottom: 0 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
-                                                    <XAxis type="number" hide />
-                                                    <YAxis dataKey="word" type="category" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
-                                                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.02)' }} contentStyle={{ background: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '13px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }} />
-                                                    <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={12}>
-                                                        {formatShapData(claim.shapExplanation).map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={entry.score > 0 ? '#34d399' : '#f43f5e'} />
-                                                        ))}
-                                                    </Bar>
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-6">
-                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-6">Retrieved Evidence</h4>
-                                        {claim.evidenceSnippets?.length > 0 ? (
-                                            <ul className="space-y-4">
-                                                {claim.evidenceSnippets.map((ev, i) => (
-                                                    <EvidenceItem key={i} evidenceText={ev} />
-                                                ))}
-                                            </ul>
-                                        ) : (
-                                            <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
-                                                <Info size={32} className="mb-3" />
-                                                <p className="text-sm">No verified factual evidence<br/>located for this specific claim.</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </GlassCard>);
-                        })}
+                        {result.claims?.map((claim, idx) => (
+                            <ClaimCard key={idx} claim={claim} getScoreColor={getScoreColor} />
+                        ))}
                     </div>
                 </motion.div>
             )}
