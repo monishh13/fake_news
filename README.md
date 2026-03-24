@@ -2,9 +2,6 @@
 
 # AIVera — Explainable Fake News Detection
 
-<a href="https://github.com/monishh13/fake_news/blob/main/LICENSE">
-    <img alt="License" src="https://img.shields.io/github/license/monishh13/fake_news" />
-</a>
 <a href="#">
     <img alt="Backend" src="https://img.shields.io/badge/Backend-Spring%20Boot-green" />
 </a>
@@ -241,4 +238,4 @@ The Chrome/Edge extension routes **all requests through the Spring Boot gateway*
 ---
 
 ## 📜 License
-Distributed under the MIT License. See `LICENSE` for more information.
+This project was developed as part of an academic program.
