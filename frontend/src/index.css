@@ -336,6 +336,23 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+/* ===== TEXT SELECTION ===== */
+::selection {
+  background-color: rgba(108, 92, 231, 0.45); /* accent purple */
+  color: #ffffff;
+}
+
+textarea::selection {
+  background-color: rgba(108, 92, 231, 0.55);
+  color: #ffffff;
+}
+
+[data-theme="light"] ::selection {
+  background-color: rgba(108, 92, 231, 0.3);
+  color: #1a1d2e;
+}
+
+
 .file-drop-area {
   border: 2px dashed var(--border);
   border-radius: 10px;

@@ -291,10 +291,19 @@ export default function App() {
                         <FileText size={16} /> Text Input
                     </div>
                     <textarea
-                        className="w-full flex-1 min-h-[160px] p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-none"
+                        className="w-full flex-1 min-h-[160px] p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-y relative z-10"
+                        style={{ userSelect: 'text', pointerEvents: 'auto', WebkitUserSelect: 'text' }}
                         placeholder="Paste news article or social media post here..."
                         value={text}
                         onChange={e => setText(e.target.value)}
+                        spellCheck={true}
+                        onKeyDown={e => {
+                            e.stopPropagation();
+                            if (e.ctrlKey && e.key === 'a') {
+                                e.preventDefault();
+                                e.target.select();
+                            }
+                        }}
                     />
                     <button 
                         onClick={handleTextSubmit} disabled={loading}
