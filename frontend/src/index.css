@@ -336,6 +336,23 @@ textarea:focus {
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
+/* ===== TEXT SELECTION ===== */
+::selection {
+  background-color: rgba(108, 92, 231, 0.45); /* accent purple */
+  color: #ffffff;
+}
+
+textarea::selection {
+  background-color: rgba(108, 92, 231, 0.55);
+  color: #ffffff;
+}
+
+[data-theme="light"] ::selection {
+  background-color: rgba(108, 92, 231, 0.3);
+  color: #1a1d2e;
+}
+
+
 .file-drop-area {
   border: 2px dashed var(--border);
   border-radius: 10px;
@@ -590,3 +607,30 @@ h4 {
     transform: translateY(0);
   }
 }
+
+/* High-quality PDF Export Overrides */
+.printing-pdf {
+  background-color: #0a0e1a !important; /* Force solid background */
+  color: #f0f4f8 !important;
+}
+
+.printing-pdf .bg-clip-text {
+  -webkit-background-clip: unset !important;
+  -webkit-text-fill-color: #ffffff !important;
+  background: none !important;
+  color: #ffffff !important;
+}
+
+.printing-pdf .backdrop-blur-xl,
+.printing-pdf .backdrop-blur-md {
+  backdrop-filter: none !important;
+  background-color: rgba(17, 24, 39, 0.95) !important;
+}
+
+.printing-pdf [data-html2canvas-ignore="true"] {
+  display: none !important;
+}
+
+.printing-pdf circle {
+  transition: none !important; /* Disable animations for capture */
+}

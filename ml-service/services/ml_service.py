@@ -5,11 +5,16 @@ import shap
 import os
 import hashlib
 import json
+from .calibration import calibrate_score
 
 CACHE_DIR = "cache/shap"
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-model_path = "./model_weights/distilbert"
+model_path = "./model_weights/roberta"
+# Backward compatibility check
+if not os.path.exists(model_path):
+    model_path = "./model_weights/distilbert"
+
 has_model = os.path.exists(model_path)
 
 if has_model:
@@ -52,8 +57,9 @@ def analyze_claim(claim_text: str) -> tuple[float, dict]:
         outputs = model(**inputs)
         logits = outputs.logits
         probabilities = torch.nn.functional.softmax(logits, dim=-1)
-        credibility_score = probabilities[0][1].item()
-    
+        raw_score = probabilities[0][1].item()
+        # Feature 4: apply Platt scaling to correct overconfident softmax output
+        credibility_score = calibrate_score(raw_score)
     # SHAP logic
     try:
         shap_values = explainer([claim_text])

@@ -3,13 +3,24 @@
   "name": "AIVera Fact Checker",
   "version": "1.0",
   "description": "Select text and right-click to fact-check declarative claims using the local AIVera ML engine.",
-  "permissions": ["contextMenus", "storage", "activeTab", "scripting"],
-  "host_permissions": ["http://localhost:8081/*"],
+  "permissions": ["contextMenus", "storage"],
+  "host_permissions": [
+    "http://localhost:8081/*",
+    "http://localhost:5173/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
     "default_title": "AIVera Analysis"
-  }
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://localhost:5173/*"],
+      "js": ["content_bridge.js"],
+      "run_at": "document_start"
+    }
+  ]
 }
+

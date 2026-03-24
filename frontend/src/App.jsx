@@ -6,9 +6,10 @@ import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { 
     UploadCloud, FileText, AlertTriangle, Activity, Search, 
-    History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check 
+    History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check, Download 
 } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
+import html2pdf from 'html2pdf.js';
+import { VerdictBadge, ZoneScoreBar, ContextualNote, ClaimHeatmap, SummaryStrip, InfluenceBreakdown, WordExplanationPanel, EvidenceCard, ClaimCard } from './ui_components';
 
 function cn(...inputs) { return twMerge(clsx(inputs)); }
 
@@ -63,42 +64,7 @@ const TrustMeter = ({ score }) => {
     );
 };
 
-// -- Evidence Badge Formatter --
-const EvidenceItem = ({ evidenceText }) => {
-    // Regex to capture "[Source Name] The rest of the text"
-    const match = evidenceText.match(/^\[(.*?)\]\s*(.*)$/);
-    if (!match) {
-        return (
-            <li className="text-sm leading-relaxed text-[var(--text-secondary)] relative pl-5 group/ev">
-                <span className="absolute left-0 top-1 text-accent opacity-60">→</span>
-                {evidenceText}
-                <div className="absolute top-0 -right-2 opacity-0 group-hover/ev:opacity-100 transition-opacity"><ClipboardButton text={evidenceText} /></div>
-            </li>
-        );
-    }
-    
-    const [, rawSource, cleanText] = match;
-    
-    // Determine badge color
-    let badgeColor = "bg-[var(--bg-input)] text-[var(--text-primary)] border-[var(--border)]";
-    if (rawSource.includes('Google') || rawSource.includes('Fact Check')) badgeColor = "bg-blue-500/20 text-blue-400 border-blue-500/30";
-    else if (rawSource.includes('NewsAPI')) badgeColor = "bg-amber-500/20 text-amber-400 border-amber-500/30";
-    else if (rawSource.includes('Wikipedia')) badgeColor = "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
 
-    return (
-        <li className="text-sm leading-relaxed text-[var(--text-primary)] relative flex flex-col gap-2 group/ev p-3 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] hover:border-[var(--border)] transition-colors">
-            <div className="flex justify-between items-start">
-                <span className={cn("text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded-md border", badgeColor)}>
-                    {rawSource}
-                </span>
-                <div className="opacity-0 group-hover/ev:opacity-100 transition-opacity">
-                    <ClipboardButton text={cleanText} />
-                </div>
-            </div>
-            <p className="pl-1 italic text-[var(--text-secondary)]">{cleanText}</p>
-        </li>
-    );
-};
 
 // -- Clipboard Button Component --
 const ClipboardButton = ({ text }) => {
@@ -109,7 +75,7 @@ const ClipboardButton = ({ text }) => {
         setTimeout(() => setCopied(false), 2000);
     };
     return (
-        <button onClick={handleCopy} className="p-1.5 text-muted-foreground hover:text-primary transition-colors hover:bg-[var(--bg-input)] rounded-md" title="Copy to clipboard">
+        <button onClick={handleCopy} aria-label="Copy to clipboard" className="p-1.5 text-muted-foreground hover:text-primary transition-colors hover:bg-[var(--bg-input)] rounded-md" title="Copy to clipboard">
             {copied ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
         </button>
     );
@@ -133,17 +99,46 @@ export default function App() {
 
     // On Mount
     useEffect(() => {
-        // Load History
-        const saved = localStorage.getItem('aivera_history');
-        if (saved) { try { setHistory(JSON.parse(saved)); } catch (e) { } }
+        // Load history from backend, fallback to localStorage
+        const loadHistory = async () => {
+            try {
+                const { data } = await axios.get(`${API_BASE}/history`);
+                setHistory(data.slice(0, 20));
+            } catch (err) {
+                const saved = localStorage.getItem('aivera_history');
+                if (saved) { try { setHistory(JSON.parse(saved)); } catch (e) { } }
+            }
+        };
+        loadHistory();
 
-        // Check URL for ?report=id
         const urlParams = new URLSearchParams(window.location.search);
         const reportId = urlParams.get('report');
+
         if (reportId) {
+            // Listen for the full result payload from the content bridge.
+            // When React sends AIVERA_READY, the bridge replies with AIVERA_REPORT.
+            // This is race-free because the bridge waits for our signal.
+            const onMessage = (event) => {
+                if (event.source === window && event.data && event.data.type === 'AIVERA_REPORT') {
+                    window.removeEventListener('message', onMessage);
+                    setError('');          // clear any API error that may have raced
+                    setResult(event.data.data);
+                    addToHistory(event.data.data, 'extension', event.data.data.content || 'Extension Analysis');
+                    window.history.replaceState({}, '', window.location.pathname);
+                }
+            };
+            window.addEventListener('message', onMessage);
+
+            // Signal the content bridge that React is ready
+            window.postMessage({ type: 'AIVERA_READY' }, '*');
+
+            // Also kick off the API fetch as a fallback (works if DB is intact)
             fetchReport(reportId);
+
+            return () => window.removeEventListener('message', onMessage);
         }
     }, []);
+
 
     const [isFetchingReport, setIsFetchingReport] = useState(false);
     const fetchReport = async (id) => {
@@ -152,7 +147,7 @@ export default function App() {
             const { data } = await axios.get(`${API_BASE}/${id}`);
             setResult(data);
         } catch (err) {
-            setError("Couldn't find that report. It may have been deleted or the ID is invalid.");
+            setError("Couldn't find that report. It may have been deleted, the ID is invalid, or the backend was restarted (clearing in-memory data).");
         } finally {
             setIsFetchingReport(false);
         }
@@ -234,13 +229,42 @@ export default function App() {
         return '#f43f5e'; // rose-500
     };
 
-    const formatShapData = (shapDict) => {
-        if (!shapDict) return [];
-        return Object.entries(shapDict)
-            .map(([word, score]) => ({ word, score }))
-            .sort((a, b) => Math.abs(b.score) - Math.abs(a.score))
-            .slice(0, 8);
+    const getCredibilityLabel = (score) => {
+        if (score >= 0.7) return 'Real / Authentic';
+        if (score >= 0.4) return 'Mixed / Uncertain';
+        return 'Fake / Misleading';
     };
+
+    const handleDownloadPDF = () => {
+        const element = document.getElementById('report-content');
+        if (!element) return;
+        
+        // Apply printing class for high-quality capture
+        element.classList.add('printing-pdf');
+        
+        const opt = {
+            margin:       0.5,
+            filename:     `aivera_report_${result?.id || 'new'}.pdf`,
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { 
+                scale: 3, 
+                useCORS: true,
+                logging: false,
+                letterRendering: true
+            },
+            jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
+        };
+
+        // Use promise to ensure class is removed after capture
+        html2pdf().set(opt).from(element).save().then(() => {
+            element.classList.remove('printing-pdf');
+        }).catch(err => {
+            console.error("PDF generation failed:", err);
+            element.classList.remove('printing-pdf');
+        });
+    };
+
+
 
     const shareUrl = result?.id ? `${window.location.origin}${window.location.pathname}?report=${result.id}` : '';
     const shareText = result ? `Check out this fact-check report from AIVera: Credibility ${Math.round(result.overallCredibility * 100)}%` : '';
@@ -267,10 +291,19 @@ export default function App() {
                         <FileText size={16} /> Text Input
                     </div>
                     <textarea
-                        className="w-full flex-1 min-h-[160px] p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-none"
+                        className="w-full flex-1 min-h-[160px] p-4 rounded-xl bg-[var(--bg-input)] border border-[var(--border)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-accent/50 transition-all resize-y relative z-10"
+                        style={{ userSelect: 'text', pointerEvents: 'auto', WebkitUserSelect: 'text' }}
                         placeholder="Paste news article or social media post here..."
                         value={text}
                         onChange={e => setText(e.target.value)}
+                        spellCheck={true}
+                        onKeyDown={e => {
+                            e.stopPropagation();
+                            if (e.ctrlKey && e.key === 'a') {
+                                e.preventDefault();
+                                e.target.select();
+                            }
+                        }}
                     />
                     <button 
                         onClick={handleTextSubmit} disabled={loading}
@@ -340,7 +373,7 @@ export default function App() {
             )}
 
             {result && !loading && (
-                <motion.div variants={itemVariants} className="space-y-8 mt-8">
+                <motion.div variants={itemVariants} className="space-y-8 mt-8" id="report-content">
                     {/* Hero Results Card */}
                     <GlassCard className="p-8 relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-8 border-accent/20">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-emerald-400 via-amber-400 to-rose-500 opacity-50"></div>
@@ -352,8 +385,11 @@ export default function App() {
                             </p>
                             
                             {/* Share Actions */}
-                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6">
-                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mr-2">Share Report</span>
+                            <div className="flex flex-wrap items-center justify-center md:justify-start gap-3 mt-6" data-html2canvas-ignore="true">
+                                <button onClick={handleDownloadPDF} className="flex items-center gap-2 px-4 py-2 bg-accent/10 hover:bg-accent/20 border border-accent/20 text-accent rounded-full text-sm font-medium transition-all">
+                                    <Download size={16} /> Save PDF
+                                </button>
+                                <span className="text-xs font-semibold text-muted-foreground uppercase tracking-widest mx-2">Share</span>
                                 <button onClick={handleShareCopy} className="flex items-center gap-2 px-4 py-2 bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] rounded-full text-sm font-medium transition-all">
                                     {shareCopied ? <Check size={16} className="text-emerald-400" /> : <Share2 size={16} />} 
                                     {shareCopied ? 'Copied Link!' : 'Copy Link'}
@@ -366,7 +402,10 @@ export default function App() {
 
                         <div className="flex flex-col items-center">
                             <TrustMeter score={result.overallCredibility} />
-                            <p className="mt-4 text-xs tracking-widest uppercase font-semibold text-muted-foreground">Overall Score</p>
+                            <p className="mt-4 text-xs tracking-widest uppercase font-semibold text-muted-foreground mb-1">Overall Score</p>
+                            <p className={cn("text-sm font-bold uppercase tracking-wide", result.overallCredibility >= 0.7 ? 'text-emerald-400' : (result.overallCredibility >= 0.4 ? 'text-amber-400' : 'text-rose-500'))}>
+                                {getCredibilityLabel(result.overallCredibility)}
+                            </p>
                         </div>
                     </GlassCard>
 
@@ -377,82 +416,7 @@ export default function App() {
                         </h3>
                         
                         {result.claims?.map((claim, idx) => (
-                            <GlassCard key={idx} className="p-0 overflow-hidden group hover:border-[var(--border)] transition-colors">
-                                <div className="p-6 border-b border-[var(--border)]">
-                                    <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
-                                        <div className="flex-1">
-                                            <div className="flex items-start gap-2">
-                                                <p className="text-lg font-medium text-[var(--text-primary)] leading-relaxed italic">"{claim.claimText}"</p>
-                                                <ClipboardButton text={claim.claimText} />
-                                            </div>
-                                        </div>
-                                        <div className={cn(
-                                            "uppercase tracking-widest text-[10px] font-bold px-3 py-1.5 rounded-full border",
-                                            claim.status.startsWith('SUPPORTED') ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" :
-                                            claim.status.startsWith('CONTRADICTED') ? "bg-rose-500/10 text-rose-400 border-rose-500/20" :
-                                            "bg-amber-500/10 text-amber-400 border-amber-500/20"
-                                        )}>
-                                            {claim.status.replace('_', ' ')}
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="flex items-center gap-4 text-sm font-bold mt-2">
-                                        <div className="flex-1 h-2 bg-[var(--bg-sidebar)] rounded-full overflow-hidden border border-[var(--border)]">
-                                            <motion.div 
-                                                className="h-full rounded-full"
-                                                style={{ backgroundColor: getScoreColor(claim.credibilityScore) }}
-                                                initial={{ width: 0 }}
-                                                whileInView={{ width: `${claim.credibilityScore * 100}%` }}
-                                                viewport={{ once: true }}
-                                                transition={{ duration: 1, delay: 0.2 }}
-                                            />
-                                        </div>
-                                        <span style={{ color: getScoreColor(claim.credibilityScore) }}>
-                                            {Math.round(claim.credibilityScore * 100)}% Verified
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 lg:grid-cols-2 bg-[var(--bg-input)] origin-top divide-y lg:divide-y-0 lg:divide-x divide-white/5">
-                                    <div className="p-6">
-                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-6 flex items-center justify-between">
-                                            Explainability (SHAP)
-                                            <span className="text-[10px] text-[var(--text-muted)] lowercase font-normal italic">word impact</span>
-                                        </h4>
-                                        <div className="h-48">
-                                            <ResponsiveContainer width="100%" height="100%">
-                                                <BarChart data={formatShapData(claim.shapExplanation)} layout="vertical" margin={{ top: 0, right: 0, left: 40, bottom: 0 }}>
-                                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
-                                                    <XAxis type="number" hide />
-                                                    <YAxis dataKey="word" type="category" stroke="rgba(255,255,255,0.4)" fontSize={12} tickLine={false} axisLine={false} />
-                                                    <Tooltip cursor={{ fill: 'rgba(255,255,255,0.02)' }} contentStyle={{ background: '#09090b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: '#fff', fontSize: '13px', boxShadow: '0 10px 30px -10px rgba(0,0,0,0.5)' }} />
-                                                    <Bar dataKey="score" radius={[0, 4, 4, 0]} barSize={12}>
-                                                        {formatShapData(claim.shapExplanation).map((entry, index) => (
-                                                            <Cell key={`cell-${index}`} fill={entry.score > 0 ? '#34d399' : '#f43f5e'} />
-                                                        ))}
-                                                    </Bar>
-                                                </BarChart>
-                                            </ResponsiveContainer>
-                                        </div>
-                                    </div>
-
-                                    <div className="p-6">
-                                        <h4 className="text-sm font-semibold tracking-widest text-muted-foreground uppercase mb-6">Retrieved Evidence</h4>
-                                        {claim.evidenceSnippets?.length > 0 ? (
-                                            <ul className="space-y-4">
-                                                {claim.evidenceSnippets.map((ev, i) => (
-                                                    <EvidenceItem key={i} evidenceText={ev} />
-                                                ))}
-                                            </ul>
-                                        ) : (
-                                            <div className="h-full flex flex-col items-center justify-center text-center opacity-40 py-8">
-                                                <Info size={32} className="mb-3" />
-                                                <p className="text-sm">No verified factual evidence<br/>located for this specific claim.</p>
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            </GlassCard>
+                            <ClaimCard key={idx} claim={claim} getScoreColor={getScoreColor} />
                         ))}
                     </div>
                 </motion.div>
@@ -479,11 +443,11 @@ export default function App() {
                             >
                                 <div className="flex justify-between items-center mb-4">
                                     <span className="uppercase tracking-widest text-[10px] font-bold px-3 py-1 bg-[var(--bg-input)] rounded-full border border-[var(--border)] text-[var(--text-secondary)]">
-                                        {record.type}
+                                        {record.type || 'DBRECORD'}
                                     </span>
-                                    <span className="text-xs text-muted-foreground">{new Date(record.timestamp).toLocaleString()}</span>
+                                    <span className="text-xs text-muted-foreground">{new Date(record.timestamp || record.createdAt || new Date()).toLocaleString()}</span>
                                 </div>
-                                <h4 className="text-lg font-medium italic text-[var(--text-primary)] mb-4 line-clamp-2">"{record.query}"</h4>
+                                <h4 className="text-lg font-medium italic text-[var(--text-primary)] mb-4 line-clamp-2">"{record.query || (record.content ? record.content.substring(0, 80) + '...' : 'Saved Analysis')}"</h4>
                                 <div className="flex items-center gap-4 text-sm font-semibold">
                                     <div className="w-3 h-3 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.2)]" style={{ backgroundColor: getScoreColor(record.overallCredibility) }} />
                                     <span className="text-[var(--text-secondary)]">{Math.round(record.overallCredibility * 100)}% Credibility</span>
@@ -615,7 +579,7 @@ export default function App() {
                     </div>
                     
                     <div className="flex items-center gap-4">
-                        <button onClick={toggleTheme} className="w-10 h-10 rounded-full bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] flex items-center justify-center transition-colors text-[var(--text-secondary)]">
+                        <button onClick={toggleTheme} aria-label={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'} className="w-10 h-10 rounded-full bg-[var(--bg-input)] hover:bg-[var(--bg-input)] border border-[var(--border)] flex items-center justify-center transition-colors text-[var(--text-secondary)]">
                             {theme === "light" ? <Moon size={18} /> : <Sun size={18} />}
                         </button>
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border border-[var(--border)] flex items-center justify-center font-bold shadow-inner cursor-pointer hover:border-accent transition-colors">
