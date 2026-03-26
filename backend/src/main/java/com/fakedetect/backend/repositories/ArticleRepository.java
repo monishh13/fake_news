@@ -4,6 +4,7 @@ import com.fakedetect.backend.models.Article;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import jakarta.transaction.Transactional;
 
 import java.util.List;
 
@@ -19,4 +20,12 @@ public interface ArticleRepository extends JpaRepository<Article, Long> {
 
     @Query("SELECT COUNT(a) FROM Article a WHERE a.overallCredibility >= 0.5")
     long countRealArticles();
+
+    @Query("SELECT AVG(a.latencyMs) FROM Article a")
+    Double getAverageLatency();
+
+    @Transactional
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("DELETE FROM Article a WHERE a.createdAt < :date")
+    void purgeOldArticles(java.time.LocalDateTime date);
 }

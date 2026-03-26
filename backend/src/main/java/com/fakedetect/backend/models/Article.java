@@ -20,6 +20,11 @@ public class Article {
 
     private Double overallCredibility;
 
+    private Double verdictOverride;
+    private String adminNotes;
+    private String severity = "Medium";
+    private Long latencyMs;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 
     @OneToMany(mappedBy = "article", cascade = CascadeType.ALL, orphanRemoval = true)

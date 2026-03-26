@@ -4,6 +4,7 @@ import com.fakedetect.backend.models.Article;
 import com.fakedetect.backend.models.Claim;
 import com.fakedetect.backend.repositories.ArticleRepository;
 import com.fakedetect.backend.services.MlServiceClient;
+import com.fakedetect.backend.services.AdminEventService;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -20,17 +21,21 @@ public class DetectionController {
 
     private final MlServiceClient mlServiceClient;
     private final ArticleRepository articleRepository;
+    private final AdminEventService eventService;
 
-    public DetectionController(MlServiceClient mlServiceClient, ArticleRepository articleRepository) {
+    public DetectionController(MlServiceClient mlServiceClient, ArticleRepository articleRepository, AdminEventService eventService) {
         this.mlServiceClient = mlServiceClient;
         this.articleRepository = articleRepository;
+        this.eventService = eventService;
     }
 
     @PostMapping("/text")
     @Transactional
     public ResponseEntity<Article> analyzeText(@RequestParam("text") String text) {
+        long startTime = System.currentTimeMillis();
         JsonNode result = mlServiceClient.analyzeText(text);
-        return ResponseEntity.ok(saveResult(result));
+        long latency = System.currentTimeMillis() - startTime;
+        return ResponseEntity.ok(saveResult(result, latency));
     }
 
     @PostMapping("/file")
@@ -38,8 +43,10 @@ public class DetectionController {
     public ResponseEntity<Article> analyzeFile(@RequestParam("file") MultipartFile file) {
         System.out.println("[DetectionController] received file upload: " + file.getOriginalFilename() + " (" + file.getContentType() + ")");
         try {
+            long startTime = System.currentTimeMillis();
             JsonNode result = mlServiceClient.analyzeFile(file);
-            return ResponseEntity.ok(saveResult(result));
+            long latency = System.currentTimeMillis() - startTime;
+            return ResponseEntity.ok(saveResult(result, latency));
         } catch (IOException e) {
             e.printStackTrace();
             return ResponseEntity.internalServerError().build();
@@ -67,10 +74,11 @@ public class DetectionController {
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    private Article saveResult(JsonNode result) {
+    private Article saveResult(JsonNode result, long latency) {
         Article article = new Article();
         article.setContent(result.get("article_text").asText());
         article.setOverallCredibility(result.get("overall_credibility").asDouble());
+        article.setLatencyMs(latency);
         
         List<Claim> claimsList = new ArrayList<>();
         JsonNode claimsNode = result.get("claims");
@@ -105,6 +113,8 @@ public class DetectionController {
             }
         }
         article.setClaims(claimsList);
-        return articleRepository.save(article);
+        Article saved = articleRepository.save(article);
+        eventService.broadcastNewAnalysis(saved);
+        return saved;
     }
 }
