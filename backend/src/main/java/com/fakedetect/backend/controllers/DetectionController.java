@@ -15,7 +15,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/detection")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost"})
+@CrossOrigin(originPatterns = {"http://localhost:5173", "http://localhost", "chrome-extension://*"})
 public class DetectionController {
 
     private final MlServiceClient mlServiceClient;

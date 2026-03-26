@@ -37,10 +37,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderResults(data) {
+        let uncertaintyBanner = '';
+        if (data.overallCredibility >= 0.35 && data.overallCredibility <= 0.65) {
+            uncertaintyBanner = `
+                <div class="uncertainty-banner">
+                    ⚠️ <b>Low confidence</b> — this claim score is near 0.5, meaning the model is uncertain. Treat this result with caution and consider manual verification.
+                </div>
+            `;
+        }
+
         let html = `
+            ${uncertaintyBanner}
             <div class="result-card" style="text-align: center;">
                 <div style="font-size:12px; opacity:0.6; text-transform:uppercase;">Overall Credibility</div>
-                <div class="score ${getScoreClass(data.overallCredibility)}">${Math.round(data.overallCredibility * 100)}%</div>
+                <div class="score ${getScoreClass(data.overallCredibility)}">
+                    ${Math.round(data.overallCredibility * 100)}%
+                    <div style="font-size: 14px; margin-top: 4px; font-weight: 600; text-transform:uppercase; letter-spacing: 0.5px;">${getCredibilityLabel(data.overallCredibility)}</div>
+                </div>
             </div>
             <h4 style="margin: 16px 0 8px 0; font-size: 12px; text-transform:uppercase; opacity:0.7">Extracted Claims</h4>
         `;
@@ -51,9 +64,22 @@ document.addEventListener('DOMContentLoaded', () => {
                                c.status.startsWith('CONTRADICTED') ? 'background: rgba(244,63,94,0.2); color:#f43f5e' :
                                'background: rgba(251,191,36,0.2); color:#fbbf24';
                 
+                let claimHtml = '';
+                if (c.shap_values && c.shap_values.length > 0) {
+                    let tokenHtml = c.shap_values.map(([word, val]) => {
+                        if (val === 0) return `<span>${word}</span>`;
+                        let op = Math.min(Math.abs(val) * 2.5, 0.9); // Scale opacity for visibility
+                        let styleClass = val > 0 ? 'shap-boost' : 'shap-lower';
+                        return `<span class="shap-token ${styleClass}" style="--opacity: ${op.toFixed(2)}">${word}</span>`;
+                    }).join(' ');
+                    claimHtml = `<div class="claim" style="font-style: normal; line-height: 1.6;">${tokenHtml}</div>`;
+                } else {
+                    claimHtml = `<div class="claim">"${c.claimText}"</div>`;
+                }
+
                 html += `
                     <div class="result-card">
-                        <div class="claim">"${c.claimText}"</div>
+                        ${claimHtml}
                         <div style="display:flex; justify-content:space-between; align-items:center; margin-top: 10px;">
                             <span class="badge" style="${sColor}">${c.status.replace('_', ' ')}</span>
                             <span class="${getScoreClass(c.credibilityScore)}" style="font-weight:bold">${Math.round(c.credibilityScore*100)}%</span>
@@ -111,5 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (score >= 0.7) return 'high';
         if (score >= 0.4) return 'med';
         return 'low';
+    }
+
+    function getCredibilityLabel(score) {
+        if (score >= 0.7) return 'Real / Authentic';
+        if (score >= 0.4) return 'Mixed / Uncertain';
+        return 'Fake / Misleading';
     }
 });

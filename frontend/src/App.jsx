@@ -235,33 +235,59 @@ export default function App() {
         return 'Fake / Misleading';
     };
 
-    const handleDownloadPDF = () => {
+    const handleDownloadPDF = async () => {
         const element = document.getElementById('report-content');
         if (!element) return;
         
+        // Find the scrollable parent <main> and temporarily stash its hidden/scroll properties 
+        // to prevent html2canvas from truncating long content
+        const mainContainer = element.closest('main');
+        let originalOverflow = '';
+        let originalMaxHeight = '';
+        
+        if (mainContainer) {
+            originalOverflow = mainContainer.style.overflowY;
+            originalMaxHeight = mainContainer.style.maxHeight;
+            mainContainer.style.overflowY = 'visible';
+            mainContainer.style.maxHeight = 'none';
+        }
+        
         // Apply printing class for high-quality capture
         element.classList.add('printing-pdf');
+        
+        // Wait a tick for CSS to apply before capturing
+        await new Promise(resolve => setTimeout(resolve, 100));
         
         const opt = {
             margin:       0.5,
             filename:     `aivera_report_${result?.id || 'new'}.pdf`,
             image:        { type: 'jpeg', quality: 0.98 },
             html2canvas:  { 
-                scale: 3, 
+                scale: 2, // scale down to 2 to improve memory and speed
                 useCORS: true,
                 logging: false,
-                letterRendering: true
+                windowWidth: element.scrollWidth,
+                windowHeight: element.scrollHeight
             },
             jsPDF:        { unit: 'in', format: 'a4', orientation: 'portrait' }
         };
 
-        // Use promise to ensure class is removed after capture
-        html2pdf().set(opt).from(element).save().then(() => {
-            element.classList.remove('printing-pdf');
-        }).catch(err => {
+        try {
+            // handle Vite module default export
+            const workerObj = typeof html2pdf === 'function' ? html2pdf : html2pdf.default;
+            if (!workerObj) throw new Error("html2pdf is not loaded");
+            
+            await workerObj().set(opt).from(element).save();
+        } catch (err) {
             console.error("PDF generation failed:", err);
+            alert("An error occurred while generating the PDF. Please check the console for details.");
+        } finally {
             element.classList.remove('printing-pdf');
-        });
+            if (mainContainer) {
+                mainContainer.style.overflowY = originalOverflow;
+                mainContainer.style.maxHeight = originalMaxHeight;
+            }
+        }
     };
 
 
