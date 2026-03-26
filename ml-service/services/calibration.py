@@ -27,11 +27,37 @@ values returned by sklearn.linear_model.LogisticRegression fitted on
 """
 
 import math
+import os
+import json
 
-# Platt scaling parameters (see module docstring for override instructions)
+# Platt scaling parameters (defaults)
 _A: float = -10.934547
 _B: float = 5.424226
 
+# Path for persistent calibration parameters
+PARAMS_DIR = os.path.join(os.path.dirname(__file__), "..", "resources")
+PARAMS_PATH = os.path.join(PARAMS_DIR, "calibration_params.json")
+
+def reload_params():
+    """Load calibration parameters from disk or fallback to defaults."""
+    global _A, _B
+    try:
+        if os.path.exists(PARAMS_PATH):
+            with open(PARAMS_PATH, 'r') as f:
+                params = json.load(f)
+                _A = params.get('A', _A)
+                _B = params.get('B', _B)
+                print(f"[CALIBRATION] Applied parameters: A={_A}, B={_B}")
+        else:
+            os.makedirs(PARAMS_DIR, exist_ok=True)
+            with open(PARAMS_PATH, 'w') as f:
+                json.dump({'A': _A, 'B': _B}, f, indent=4)
+                print(f"[CALIBRATION] Created default parameters at {PARAMS_PATH}")
+    except Exception as e:
+        print(f"[ERROR] Failed to load calibration params: {e}")
+
+# Initial load
+reload_params()
 
 def calibrate_score(raw_score: float) -> float:
     """
@@ -47,3 +73,4 @@ def calibrate_score(raw_score: float) -> float:
     raw_score = max(1e-7, min(raw_score, 1 - 1e-7))
     calibrated = 1.0 / (1.0 + math.exp(_A * raw_score + _B))
     return round(calibrated, 6)
+

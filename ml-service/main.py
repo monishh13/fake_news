@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from services.nlp_service import segment_claims
 from services.ocr_service import extract_text_from_image, extract_text_from_pdf
 from services.ml_service import analyze_claim, has_model
+from services.calibration import reload_params
 from services.evidence_service import search_trusted_sources, compute_evidence_similarity
 from services.url_service import extract_article_from_url
 from services.cache_service import get_cached, set_cached
@@ -276,6 +277,20 @@ async def extract_url(req: UrlExtractionRequest):
     # It raises HTTPException(400) for private/reserved addresses.
     title, text = extract_article_from_url(req.url)
     return {"title": title, "text": text}
+
+
+@app.post("/internal/recalibrate")
+async def reload_calibration():
+    """
+    Internal endpoint to trigger a reload of Platt Scaling calibration parameters.
+    Called by the Java backend after a successful retraining session.
+    """
+    try:
+        reload_params()
+        return {"status": "success", "message": "Calibration parameters reloaded."}
+    except Exception as e:
+        logger.error(f"Failed to reload calibration: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

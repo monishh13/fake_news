@@ -71,22 +71,45 @@ const AdminDashboard = () => {
     init();
   }, []);
 
-  const handleOverride = async (id, updates) => {
+  const [modBuffer, setModBuffer] = useState({ verdictOverride: null, adminNotes: '', severity: 'Medium' });
+  const [isSavingMod, setIsSavingMod] = useState(false);
+
+  useEffect(() => {
+    if (selectedArticle) {
+        setModBuffer({
+            verdictOverride: selectedArticle.verdictOverride,
+            adminNotes: selectedArticle.adminNotes || '',
+            severity: selectedArticle.severity || 'Medium'
+        });
+    }
+  }, [selectedArticle]);
+
+  const handleSaveModeration = async () => {
+    if (!selectedArticle) return;
+    setIsSavingMod(true);
     try {
-      const res = await api.patch(`/admin/articles/${id}/override`, updates);
-      setArticles(prev => prev.map(a => a.id === id ? res.data : a));
+      const res = await api.patch(`/admin/articles/${selectedArticle.id}/override`, modBuffer);
+      setArticles(prev => prev.map(a => a.id === selectedArticle.id ? res.data : a));
       setSelectedArticle(res.data);
+      alert('Moderation saved successfully!');
     } catch (err) {
-      alert('Failed to save override');
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to save override';
+      alert(msg);
+    } finally {
+      setIsSavingMod(false);
     }
   };
 
   const triggerRetrain = async () => {
     setIsRetraining(true);
     try {
-        await api.post('/admin/model/retrain');
-        setTimeout(() => setIsRetraining(false), 5000);
+        const res = await api.post('/admin/model/retrain');
+        alert(res.data.message || 'Model recalibrated!');
+        fetchStats();
     } catch (err) {
+        const msg = err.response?.data?.message || err.response?.data?.error || 'Retraining failed';
+        alert(msg);
+    } finally {
         setIsRetraining(false);
     }
   };
@@ -389,8 +412,8 @@ const AdminDashboard = () => {
                                 <textarea 
                                     className="w-full bg-white/5 border border-white/10 rounded-xl p-4 text-sm focus:outline-none focus:border-emerald-500/50 min-h-[120px] transition-all"
                                     placeholder="Enter reasoning for verdict override or internal audit notes..."
-                                    value={selectedArticle.adminNotes || ''}
-                                    onChange={(e) => handleOverride(selectedArticle.id, { adminNotes: e.target.value })}
+                                    value={modBuffer.adminNotes}
+                                    onChange={(e) => setModBuffer(prev => ({...prev, adminNotes: e.target.value}))}
                                 />
                             </div>
                             <div className="flex gap-4">
@@ -398,8 +421,8 @@ const AdminDashboard = () => {
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Verdict Override</label>
                                     <select 
                                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
-                                        value={selectedArticle.verdictOverride || ''}
-                                        onChange={(e) => handleOverride(selectedArticle.id, { verdictOverride: e.target.value === '' ? null : parseFloat(e.target.value) })}
+                                        value={modBuffer.verdictOverride === null ? '' : modBuffer.verdictOverride.toString()}
+                                        onChange={(e) => setModBuffer(prev => ({...prev, verdictOverride: e.target.value === '' ? null : parseFloat(e.target.value)}))}
                                     >
                                         <option value="">No Override</option>
                                         <option value="1.0">Human Verified: REAL</option>
@@ -410,8 +433,8 @@ const AdminDashboard = () => {
                                     <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2 block">Risk Severity</label>
                                     <select 
                                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none"
-                                        value={selectedArticle.severity || 'Medium'}
-                                        onChange={(e) => handleOverride(selectedArticle.id, { severity: e.target.value })}
+                                        value={modBuffer.severity}
+                                        onChange={(e) => setModBuffer(prev => ({...prev, severity: e.target.value}))}
                                     >
                                         <option value="Low">Low Risk</option>
                                         <option value="Medium">Medium Severity</option>
@@ -419,6 +442,25 @@ const AdminDashboard = () => {
                                     </select>
                                 </div>
                             </div>
+                        </div>
+                        <div className="mt-8">
+                            <button 
+                                onClick={handleSaveModeration}
+                                disabled={isSavingMod}
+                                className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-500/50 text-white rounded-xl text-sm font-bold uppercase tracking-widest transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] flex items-center justify-center gap-2"
+                            >
+                                {isSavingMod ? (
+                                    <>
+                                        <RefreshCw size={16} className="animate-spin" />
+                                        Saving Changes...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CheckCircle size={16} />
+                                        Save Audit Results
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </section>
 
