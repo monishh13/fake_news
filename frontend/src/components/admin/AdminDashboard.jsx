@@ -152,6 +152,13 @@ const AdminDashboard = () => {
             </div>
 
             <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => { fetchStats(); api.get('/admin/articles?page=0&size=50&sort=createdAt,desc').then(res => setArticles(res.data.content || [])); }}
+                  className="p-2 hover:bg-accent/10 text-muted-foreground hover:text-accent rounded-lg transition-all border border-transparent hover:border-accent/20"
+                  title="Force Sync Stats"
+                >
+                    <RefreshCw size={18} />
+                </button>
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-white/5 rounded-lg border border-white/10">
                     <Database size={14} className="text-muted-foreground" />
                     <span className="text-[10px] font-bold tracking-widest uppercase">{stats?.totalArticles} Records</span>

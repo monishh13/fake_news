@@ -14,6 +14,7 @@ import hashlib
 import logging
 import time
 import re
+import asyncio
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, status as http_status
 from fastapi.middleware.cors import CORSMiddleware
@@ -102,16 +103,64 @@ async def nli_debug():
         "test_snippet_result":   results[0] if results else "NO RESULT",
     }
 
+async def _process_single_claim(claim: str, h: str, nlp_ms: int, loop: asyncio.AbstractEventLoop) -> dict:
+    """
+    Sub-pipeline for a single claim. Executes Model Inference and Evidence Search in parallel.
+    """
+    # ── 4a & 4b. Parallel execution: Model vs. Evidence ───────────────────────
+    t_m0 = time.perf_counter()
+    model_task = loop.run_in_executor(None, analyze_claim, claim)
+    
+    t_e0 = time.perf_counter()
+    evidence_task = search_trusted_sources(claim)
+
+    (base_score, explanation), evidence_snippets = await asyncio.gather(model_task, evidence_task)
+    
+    # These represent the *wall clock* time but since they ran in parallel,
+    # the maximum of these two is the actual delay added to the pipeline.
+    model_ms = int((time.perf_counter() - t_m0) * 1000)
+    ev_ms    = int((time.perf_counter() - t_e0) * 1000)
+
+    # ── 4c. Evidence similarity and score adjustment ───────────────────────────
+    claim_status, ev_explanation = compute_evidence_similarity(claim, evidence_snippets)
+
+    final_score = base_score
+    if claim_status == "SUPPORTED":
+        final_score = min(final_score + 0.25, 1.0)
+    elif claim_status == "CONTRADICTED":
+        final_score = max(final_score - 0.35, 0.0)
+    elif claim_status == "INSUFFICIENT_EVIDENCE":
+        if final_score > 0.5:
+            final_score = max(final_score - 0.40, 0.45)
+
+    label = "REAL" if final_score >= 0.5 else "FAKE"
+    logger.info(
+        "[%s] claim_hash=%s  label=%s  score=%.4f  status=%s  "
+        "nlp_ms=%d  model_ms=%d  evidence_ms=%d  evidence_count=%d  "
+        "entailment_votes=%d  contradiction_votes=%d",
+        h, _input_hash(claim), label, final_score, claim_status,
+        nlp_ms, model_ms, ev_ms, len(evidence_snippets),
+        ev_explanation.get("entailment_votes", 0),
+        ev_explanation.get("contradiction_votes", 0),
+    )
+
+    return {
+        "claim_text":           claim,
+        "credibility_score":    round(final_score, 6),
+        "status":               claim_status,
+        "evidence_snippets":    evidence_snippets,
+        "evidence_explanation": ev_explanation,
+        "shap_explanation":     explanation,
+        "final_score_raw":      final_score # needed for overall calculation
+    }
+
+
 async def _run_analysis_pipeline(text: str) -> dict:
     """
-    Core analysis pipeline shared by all input endpoints.
-    Order of operations:
-      1. Sanitize + length-check.
-      2. Redis cache lookup (fast path).
-      3. Claim segmentation (NLP).
-      4. Per-claim: model inference + parallel evidence retrieval.
-      5. Store result in cache.
-    Emits structured log lines at each stage with latency measurements.
+    Improved analysis pipeline with full parallelism.
+    - All claims processed concurrently.
+    - Model vs. Evidence retrieval executed in parallel for each claim.
+    - CPU intensive tasks (SHAP) offloaded to thread-pool.
     """
     t0_total = time.perf_counter()
     h = _input_hash(text)
@@ -130,7 +179,7 @@ async def _run_analysis_pipeline(text: str) -> dict:
         logger.info("[%s] cache=HIT  latency_total=0ms", h)
         return cached
 
-    logger.info("[%s] cache=MISS  — running full pipeline", h)
+    logger.info("[%s] cache=MISS  — running parallel pipeline", h)
 
     # ── 3. NLP claim segmentation ─────────────────────────────────────────────
     t_nlp = time.perf_counter()
@@ -143,54 +192,21 @@ async def _run_analysis_pipeline(text: str) -> dict:
             detail="No declarative claims found in the provided text.",
         )
 
+    # ── 4. Concurrent Claim Analysis ──────────────────────────────────────────
+    loop = asyncio.get_event_loop()
+    tasks = [_process_single_claim(claim, h, nlp_ms, loop) for claim in claims]
+    
+    # Wait for all claims to complete
+    results = await asyncio.gather(*tasks)
+
+    # ── 5. Aggregate Results ──────────────────────────────────────────────────
     analyzed_claims = []
     total_score = 0.0
-
-    for claim in claims:
-        # ── 4a. Model inference ───────────────────────────────────────────────
-        t_model = time.perf_counter()
-        base_score, explanation = analyze_claim(claim)
-        model_ms = int((time.perf_counter() - t_model) * 1000)
-
-        # ── 4b. Parallel evidence retrieval ───────────────────────────────────
-        t_ev = time.perf_counter()
-        evidence_snippets = await search_trusted_sources(claim)
-        ev_ms = int((time.perf_counter() - t_ev) * 1000)
-
-        claim_status, ev_explanation = compute_evidence_similarity(claim, evidence_snippets)
-
-        # ── 4c. Adjust score with evidence signal ──────────────────────────────
-        final_score = base_score
-        if claim_status == "SUPPORTED":
-            final_score = min(final_score + 0.25, 1.0)
-        elif claim_status == "CONTRADICTED":
-            final_score = max(final_score - 0.35, 0.0)
-        elif claim_status == "INSUFFICIENT_EVIDENCE":
-            # Cap blindly high model scores when no direct evidence found online
-            if final_score > 0.5:
-                final_score = max(final_score - 0.40, 0.45)
-
-        label = "REAL" if final_score >= 0.5 else "FAKE"
-        logger.info(
-            "[%s] claim_hash=%s  label=%s  score=%.4f  status=%s  "
-            "nlp_ms=%d  model_ms=%d  evidence_ms=%d  evidence_count=%d  "
-            "entailment_votes=%d  contradiction_votes=%d",
-            h, _input_hash(claim), label, final_score, claim_status,
-            nlp_ms, model_ms, ev_ms, len(evidence_snippets),
-            ev_explanation.get("entailment_votes", 0),
-            ev_explanation.get("contradiction_votes", 0),
-        )
-
-        analyzed_claims.append({
-            "claim_text":           claim,
-            "credibility_score":    round(final_score, 6),
-            "status":               claim_status,
-            "evidence_snippets":    evidence_snippets,
-            "evidence_explanation": ev_explanation,
-            "shap_explanation":     explanation,
-        })
+    
+    for r in results:
+        final_score = r.pop("final_score_raw")
+        analyzed_claims.append(r)
         total_score += final_score
-
 
     overall = total_score / len(claims)
     result = {
@@ -205,10 +221,11 @@ async def _run_analysis_pipeline(text: str) -> dict:
         h, overall, len(claims), total_ms,
     )
 
-    # ── 5. Cache (TTL 24 h) ───────────────────────────────────────────────────
+    # ── 6. Cache (TTL 24 h) ───────────────────────────────────────────────────
     set_cached(text, result)
 
     return result
+
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
