@@ -19,10 +19,10 @@ public class ApiKeyInterceptor implements HandlerInterceptor {
     // Map of IP/Key to (timestamp, count)
     private final ConcurrentHashMap<String, RateLimitData> rateLimitMap = new ConcurrentHashMap<>();
 
-    private static class RateLimitData {
+    public static class RateLimitData {
         long resetTime;
         int count;
-        RateLimitData(long resetTime, int count) {
+        public RateLimitData(long resetTime, int count) {
             this.resetTime = resetTime;
             this.count = count;
         }

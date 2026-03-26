@@ -9,7 +9,7 @@ import {
     History, Info, Sun, Moon, Shield, Copy, Share2, Twitter, Check, Download 
 } from 'lucide-react';
 import html2pdf from 'html2pdf.js';
-import { VerdictBadge, ZoneScoreBar, ContextualNote, ClaimHeatmap, SummaryStrip, InfluenceBreakdown, WordExplanationPanel, EvidenceCard, ClaimCard } from './ui_components';
+import { VerdictBadge, ZoneScoreBar, ContextualNote, ClaimHeatmap, SummaryStrip, InfluenceBreakdown, WordExplanationPanel, EvidenceCard, ClaimCard, GlassCard } from './ui_components';
 
 function cn(...inputs) { return twMerge(clsx(inputs)); }
 
@@ -23,15 +23,7 @@ const itemVariants = {
     show: { opacity: 1, y: 0, transition: { type: 'spring', stiffness: 300, damping: 24 } }
 };
 
-// -- Glass Card Component --
-const GlassCard = ({ children, className, ...props }) => (
-    <motion.div 
-        className={cn("bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border)] rounded-2xl shadow-xl overflow-hidden", className)}
-        {...props}
-    >
-        {children}
-    </motion.div>
-);
+
 
 // -- Trust Meter Component --
 const TrustMeter = ({ score }) => {

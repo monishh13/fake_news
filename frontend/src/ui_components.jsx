@@ -22,6 +22,16 @@ const wordExplain = (w, s) => s > 0
   ? `"${w}" is a ${strengthLabel(Math.abs(s)).toLowerCase()} positive signal. In credible reporting, similar terms frequently appear in well-sourced content, increasing the model's confidence.`
   : `"${w}" is a ${strengthLabel(Math.abs(s)).toLowerCase()} negative signal. This term tends to appear in unverified content, reducing the model's confidence score.`;
 
+// ── GlassCard ──────────────────────────────────────────────────────────────
+export const GlassCard = ({ children, className, ...props }) => (
+    <motion.div 
+        className={cn("bg-[var(--bg-card)] backdrop-blur-xl border border-[var(--border)] rounded-2xl shadow-xl overflow-hidden", className)}
+        {...props}
+    >
+        {children}
+    </motion.div>
+);
+
 // ── VerdictBadge ───────────────────────────────────────────────────────────
 export const VerdictBadge = ({ score }) => {
   const { label, cls } = getVerdict(score);

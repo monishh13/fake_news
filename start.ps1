@@ -20,7 +20,7 @@ Write-Host "3. Starting Frontend in a new window..."
 Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd frontend; npm install; npm run dev"
 
 Write-Host "4. Starting Backend in a new window..."
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; `$env:Path += ';$MavenPath'; mvn spring-boot:run"
+Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd backend; `$env:ADMIN_USERNAME='admin'; `$env:ADMIN_PASSWORD='password123'; `$env:Path += ';$MavenPath'; mvn spring-boot:run"
 
 Write-Host "All 3 services are booting up in separate windows!"
 Write-Host "Wait a moment for them to install dependencies and start."
