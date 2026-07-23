@@ -21,7 +21,7 @@ AIVera is a secure, full-stack AI ecosystem for misinformation detection through
 
 ---
 
-[Key Features](#-key-features) • [Architecture](#-system-architecture) • [Security](#-security) • [API Reference](#-api-reference) • [Getting Started](#-getting-started) • [Browser Extension](#-browser-extension)
+[Key Features](#-key-features) • [Architecture](#-system-architecture) • [Model Fine-Tuning](#-model-fine-tuning--calibration) • [Security](#-security) • [API Reference](#-api-reference) • [Getting Started](#-getting-started) • [Browser Extension](#-browser-extension)
 
 </div>
 
@@ -30,7 +30,7 @@ AIVera is a secure, full-stack AI ecosystem for misinformation detection through
 ## 🌟 Key Features
 
 ### 🧠 Deep Credibility Analysis
-- **RoBERTa Scoring**: High-accuracy transformer model fine-tuned on the WELFake dataset for misinformation detection (95%+ validation accuracy).
+- **RoBERTa Fine-Tuning**: High-accuracy sequence classification transformer (`roberta-base`) fine-tuned using PyTorch, Hugging Face `transformers` (`Trainer`), `datasets`, and `evaluate` on the WELFake dataset (72k+ articles, 95%+ validation accuracy).
 - **Calibrated Confidence**: Platt scaling applied to raw softmax output — scores are genuinely calibrated probabilities, not overconfident logit values.
 - **Claim Segmentation**: Long-form text, PDFs, and images are automatically broken into individual declarative claims for granular verification.
 
@@ -95,6 +95,35 @@ Every evidence snippet is tagged with a **domain credibility score** (Reuters = 
 ```
 
 The browser extension routes **through the Spring Boot gateway** — the ML service is never directly exposed to the browser.
+
+---
+
+## 🤖 Model Fine-Tuning & Calibration
+
+The primary credibility classifier is a fine-tuned **RoBERTa** (`roberta-base`) model trained on full-length news articles. The end-to-end training and calibration process is scripted in [colab_training_distilbert.py](file:///d:/Study/projects/fake_news/fake_news/colab_training_distilbert.py).
+
+### 🛠️ Frameworks & Tools Used
+- **Base Architecture**: `roberta-base` (Hugging Face `AutoModelForSequenceClassification`)
+- **Core Frameworks**: PyTorch (`torch`), Hugging Face `transformers` (`Trainer`, `TrainingArguments`), Hugging Face `datasets`, and `evaluate`.
+- **Metrics & Calibration**: `scikit-learn` (`classification_report`, `confusion_matrix`, `LogisticRegression` for Platt scaling).
+- **Hardware & Accelerators**: Google Colab GPU environment (NVIDIA T4 / A100 GPU) with CUDA and FP16 automatic mixed precision.
+
+### 📊 Training Dataset
+- **Dataset**: [WELFake Dataset](https://huggingface.co/datasets/ramielsayed/WELFake) — 72,134 labelled news articles (37,106 real news articles from Reuters, NYT, Guardian, AP; 35,028 fake news articles from PolitiFact, GossipCop, BuzzFeed, etc.).
+- **Data Splits**: Stratified 80% Training / 10% Validation / 10% Held-Out Test split.
+- **Preprocessing**: Article title and body combined (`title + " [SEP] " + text`), HTML tags stripped, normalized, and capped at 2,000 characters before tokenization.
+
+### ⚙️ Training Setup & Hyperparameters
+- **Tokenization**: `roberta-base` tokenizer with `MAX_LENGTH = 256`, dynamic padding, and truncation.
+- **Loss Function & Class Weighting**: Custom `WeightedTrainer` applying inverse-frequency Class-Weighted Cross-Entropy Loss combined with **Label Smoothing** (`0.05`) to prevent overconfident softmax predictions.
+- **Optimizer & Schedule**: AdamW optimizer with Cosine learning rate decay, learning rate `2e-5`, warmup ratio `0.06`, and weight decay `0.01`.
+- **Batch Size**: 16 per device with 2 gradient accumulation steps (effective batch size = 32).
+- **Epochs & Early Stopping**: Trained for 5 epochs with `EarlyStoppingCallback` (patience = 2 monitoring validation F1 score).
+
+### 🎯 Post-Training Confidence Calibration (Platt Scaling)
+Raw softmax outputs from transformer classifiers are often overconfident. A Platt scaling Logistic Regression model (`sklearn.linear_model.LogisticRegression`) is trained on validation set logit outputs:
+$$p_{\text{calibrated}} = \frac{1}{1 + e^{A \cdot f(x) + B}}$$
+The resulting calibration parameters ($\_A$ and $\_B$) are embedded in [calibration.py](file:///d:/Study/projects/fake_news/fake_news/ml-service/services/calibration.py) to transform raw inference output into calibrated probability scores.
 
 ---
 

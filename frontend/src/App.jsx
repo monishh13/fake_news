@@ -323,6 +323,9 @@ export default function App() {
                             }
                         }}
                     />
+                    <div className="text-xs text-muted-foreground mt-4 leading-relaxed">
+                        Disclaimer: This AI-powered fact-checking tool analyzes content for potential misinformation. Results are based on machine learning models and may not be 100% accurate. Always verify with multiple sources.
+                    </div>
                     <button 
                         onClick={handleTextSubmit} disabled={loading}
                         className="w-full py-3 px-4 rounded-xl bg-accent hover:bg-accent/90 text-[var(--text-primary)] font-medium shadow-[0_0_20px_rgba(108,92,231,0.3)] transition-all active:scale-[0.98] disabled:opacity-50 flex justify-center items-center gap-2"
@@ -522,7 +525,7 @@ export default function App() {
                         </div>
                         <div className="flex justify-between border-b border-[var(--border)] pb-2">
                             <span className="text-[var(--text-muted)]">Core Model</span>
-                            <span className="font-medium text-[var(--text-primary)]">DistilBERT (LIAR)</span>
+                            <span className="font-medium text-[var(--text-primary)]">RoBERTa (WELFake)</span>
                         </div>
                         <div className="flex justify-between border-b border-[var(--border)] pb-2">
                             <span className="text-[var(--text-muted)]">Explainability</span>
